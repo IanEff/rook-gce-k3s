@@ -5,11 +5,16 @@
 #
 # Unlike ceph-lab's version, this reuses the SAME values.yaml ArgoCD later
 # reconciles against (applications/infrastructure/cilium/values.yaml) via -f,
-# only overriding the three env-specific values on top with --set. Ported
-# from a version that duplicated every setting as a separate --set flag —
-# that duplication is exactly what let this bootstrap-time install drift from
-# the ArgoCD-managed one (ceph-lab's install_cilium.sh still has
-# l2announcements.enabled=true, which doesn't even apply on GCP's routed VPC).
+# only overriding the two truly instance-specific values (the control-plane's
+# IP, unknown until `tofu apply`) on top with --set. Everything else,
+# including static-but-easy-to-forget settings like ipv4NativeRoutingCIDR,
+# belongs IN values.yaml itself — not duplicated here or in
+# kustomization.yaml's valuesInline — precisely because this script's `-f`
+# doesn't go through Kustomize at all. Ported from a version that duplicated
+# every setting as a separate --set flag — that duplication is exactly what
+# let this bootstrap-time install drift from the ArgoCD-managed one
+# (ceph-lab's install_cilium.sh still has l2announcements.enabled=true, which
+# doesn't even apply on GCP's routed VPC).
 set -euo pipefail
 
 CILIUM_VERSION="${CILIUM_VERSION:-1.19.3}"

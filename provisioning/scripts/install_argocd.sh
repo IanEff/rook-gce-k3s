@@ -33,11 +33,48 @@ echo "  rook-gce-k3s — ArgoCD bootstrap           "
 echo "  Repo: ${GITOPS_REPO_URL}                 "
 echo "══════════════════════════════════════════"
 
-echo "[0] Pre-bootstrap Cilium Gateway resources"
+echo "[0] Substitute GITOPS_REPO_URL placeholder across all manifests"
+# Must run BEFORE [1]'s pre-bootstrap Cilium apply, not after — that apply
+# does `kubectl kustomize | kubectl apply` straight from this same clone, so
+# if the placeholder sed hasn't happened yet, it re-renders and re-applies
+# Cilium with the literal placeholder string, clobbering the correct
+# k8sServiceHost install_cilium.sh already set via --set moments earlier
+# (this is precisely the crash-loop this ordering used to cause).
+find /ceph-lab/applications/clusters /ceph-lab/cluster-bootstrap \
+    -type f -name "*.yaml" \
+    -exec sed -i "s|GITOPS_REPO_URL|${GITOPS_REPO_URL}|g" {} +
+
+echo "[0b] Substitute CONTROL_PLANE_IP placeholder in gitops.env and cilium/kustomization.yaml"
+# Same placeholder-substitution convention as GITOPS_REPO_URL above — see the
+# comment in applications/config/gitops.env for why this can't be a static
+# committed value.
+sed -i "s|GCE_CONTROL_PLANE_IP_PLACEHOLDER|${CONTROL_PLANE_INTERNAL_IP}|g" \
+    /ceph-lab/applications/config/gitops.env \
+    /ceph-lab/applications/infrastructure/cilium/kustomization.yaml
+
+echo "[0c] Commit and push the substituted values back so ArgoCD (reading from git) picks them up"
+cd /ceph-lab
+git config user.email "rook-gce-k3s-bootstrap@localhost"
+git config user.name "rook-gce-k3s-bootstrap"
+git add -A
+git commit -m "bootstrap: substitute GITOPS_REPO_URL / CONTROL_PLANE_IP placeholders" --quiet || true
+# Fatal, not a warn-and-continue: a failed push here leaves ArgoCD reconciling
+# the cilium Application from the still-placeholdered remote forever (it
+# rejects the k8sServiceHost DNS lookup and crash-loops) — a silent, hours-
+# later-discovered failure mode, not a loud one. Fail bootstrap now instead;
+# see gitops_repo_token/gitops_ssh_key_path's need for WRITE access in
+# variables.tf.
+if [ -n "$GITOPS_SSH_KEY_PATH" ] && [ -f "${GITOPS_SSH_KEY_PATH}" ]; then
+    GIT_SSH_COMMAND="ssh -i ${GITOPS_SSH_KEY_PATH} -o StrictHostKeyChecking=no" git push
+else
+    git push
+fi
+
+echo "[1] Pre-bootstrap Cilium Gateway resources"
 CILIUM_APP=/ceph-lab/applications/infrastructure/cilium
 bootstrap_ok=0
 for attempt in $(seq 1 8); do
-    echo "[0] Building and applying Cilium kustomization (attempt ${attempt}/8)..."
+    echo "[1] Building and applying Cilium kustomization (attempt ${attempt}/8)..."
     output=$(kubectl kustomize "${CILIUM_APP}" --enable-helm \
         | kubectl apply --server-side --force-conflicts -f - 2>&1) || true
     echo "$output"
@@ -45,23 +82,23 @@ for attempt in $(seq 1 8); do
         bootstrap_ok=1
         break
     fi
-    echo "[0] Attempt ${attempt}/8 incomplete; retrying in 10s..."
+    echo "[1] Attempt ${attempt}/8 incomplete; retrying in 10s..."
     sleep 10
 done
 if [ "$bootstrap_ok" -eq 1 ]; then
-    echo "[0] Cilium resources applied. Waiting for the Gateway's hostNetwork Envoy pod to settle..."
+    echo "[1] Cilium resources applied. Waiting for the Gateway's hostNetwork Envoy pod to settle..."
     kubectl rollout status daemonset/cilium -n kube-system --timeout=3m || true
     kubectl wait --for=condition=Programmed gateway/cilium-gateway -n kube-system --timeout=2m || true
 else
     echo "[WARN] Pre-bootstrap may be incomplete; ArgoCD will reconcile."
 fi
 
-echo "[1] Install ArgoCD (${ARGOCD_VERSION})"
+echo "[2] Install ArgoCD (${ARGOCD_VERSION})"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply --server-side -n argocd -f \
     "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
 
-echo "[2] Apply local bootstrap patches (insecure mode, kustomize-helm, bcrypt password)"
+echo "[3] Apply local bootstrap patches (insecure mode, kustomize-helm, bcrypt password)"
 kubectl apply --server-side -k /ceph-lab/cluster-bootstrap/argocd/
 
 echo "[4] Configure repository access"
@@ -106,33 +143,7 @@ else
     echo "  If ${GITOPS_REPO_URL} is public, ArgoCD will clone it without auth."
 fi
 
-echo "[5] Substitute GITOPS_REPO_URL placeholder across all manifests"
-find /ceph-lab/applications/clusters /ceph-lab/cluster-bootstrap \
-    -type f -name "*.yaml" \
-    -exec sed -i "s|GITOPS_REPO_URL|${GITOPS_REPO_URL}|g" {} +
-
-echo "[5b] Substitute CONTROL_PLANE_IP placeholder in gitops.env and cilium/kustomization.yaml"
-# Same placeholder-substitution convention as GITOPS_REPO_URL above — see the
-# comment in applications/config/gitops.env for why this can't be a static
-# committed value.
-sed -i "s|GCE_CONTROL_PLANE_IP_PLACEHOLDER|${CONTROL_PLANE_INTERNAL_IP}|g" \
-    /ceph-lab/applications/config/gitops.env \
-    /ceph-lab/applications/infrastructure/cilium/kustomization.yaml
-
-echo "[5c] Commit and push the substituted values back so ArgoCD (reading from git) picks them up"
-cd /ceph-lab
-git config user.email "rook-gce-k3s-bootstrap@localhost"
-git config user.name "rook-gce-k3s-bootstrap"
-git add -A
-git commit -m "bootstrap: substitute GITOPS_REPO_URL / CONTROL_PLANE_IP placeholders" --quiet || true
-if [ -n "$GITOPS_SSH_KEY_PATH" ] && [ -f "${GITOPS_SSH_KEY_PATH}" ]; then
-    GIT_SSH_COMMAND="ssh -i ${GITOPS_SSH_KEY_PATH} -o StrictHostKeyChecking=no" git push || \
-        echo "[WARN] push failed — push manually or ArgoCD will see stale placeholders until this succeeds."
-else
-    git push || echo "[WARN] push failed — push manually or ArgoCD will see stale placeholders until this succeeds."
-fi
-
-echo "[5d] Apply root Application (seeds entire GitOps tree)"
+echo "[5] Apply root Application (seeds entire GitOps tree)"
 kubectl apply -f /ceph-lab/cluster-bootstrap/bootstrap/root-app.yaml
 
 echo "[6] Install argocd CLI"

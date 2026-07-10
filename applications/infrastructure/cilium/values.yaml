@@ -1,6 +1,16 @@
 kubeProxyReplacement: true
 routingMode: native
 autoDirectNodeRoutes: true
+# Must match POD_CIDR (gitops.env) / ipam.operator.clusterPoolIPv4PodCIDRList
+# below. Static, not env-specific — kept here (not kustomization.yaml's
+# valuesInline) so it's present for BOTH the ArgoCD/Kustomize reconciliation
+# path AND install_cilium.sh's direct `helm -f values.yaml` bootstrap install.
+# Cilium's own chart only guards this at Helm template-time when
+# enableIPv4Masquerade is explicitly truthy in values (it defaults to nil
+# there), so a missing CIDR doesn't fail the install — it fails at runtime
+# instead, since the cilium-agent binary itself defaults
+# --enable-ipv4-masquerade=true regardless of what the chart rendered.
+ipv4NativeRoutingCIDR: 10.244.0.0/16
 
 bpf:
   masquerade: true
