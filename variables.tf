@@ -59,7 +59,7 @@ variable "boot_disk_size_gb" {
 }
 
 variable "allowed_source_ranges" {
-  description = "CIDR allowlist for SSH (22), the k3s API (6443), and the Cilium Gateway (80/443/4245) firewall rules. No default on purpose — every user of this repo must explicitly scope this to their own IP (and thump's, if it runs elsewhere) rather than inherit a silently-permissive default."
+  description = "CIDR allowlist for the Cilium Gateway (80/443/4245) firewall rule only — SSH (22) and the k3s API (6443) are IAP-tunnel-only (see network.tf's iap_source_range) and don't consume this variable. No default on purpose — every user of this repo must explicitly scope this to their own IP (and thump's, if it runs elsewhere) rather than inherit a silently-permissive default."
   type        = list(string)
 }
 

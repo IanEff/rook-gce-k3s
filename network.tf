@@ -13,11 +13,24 @@ resource "google_compute_subnetwork" "main" {
   ip_cidr_range = var.subnet_cidr
 }
 
+# Google's fixed IAP TCP-forwarding source range — documented, doesn't vary
+# per project (https://cloud.google.com/iap/docs/using-tcp-forwarding). SSH
+# and the k3s API are IAP-tunnel-only rather than gated by
+# var.allowed_source_ranges: both are admin channels used from a laptop that
+# roams between networks (home, coffee shops, ...), and IAP authenticates by
+# IAM identity instead of source IP, so there's no client IP to track/allowlist
+# at all. Callers need roles/iap.tunnelResourceAccessor on the project (see
+# outputs.tf's ssh_control_plane_command) in addition to the existing
+# roles/compute.osLoginUser requirement.
+locals {
+  iap_source_range = "35.235.240.0/20"
+}
+
 resource "google_compute_firewall" "allow_ssh" {
   name          = "${var.cluster_name}-allow-ssh"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
-  source_ranges = var.allowed_source_ranges
+  source_ranges = [local.iap_source_range]
   target_tags   = ["${var.cluster_name}-node"]
 
   allow {
@@ -30,7 +43,7 @@ resource "google_compute_firewall" "allow_k3s_api" {
   name          = "${var.cluster_name}-allow-k3s-api"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
-  source_ranges = var.allowed_source_ranges
+  source_ranges = [local.iap_source_range]
   target_tags   = ["${var.cluster_name}-control-plane"]
 
   allow {
@@ -41,7 +54,10 @@ resource "google_compute_firewall" "allow_k3s_api" {
 
 # Cilium Gateway (gatewayAPI.hostNetwork mode, pinned to the control-plane
 # node — see applications/infrastructure/cilium/values.yaml). 4245 is the
-# cleartext Hubble relay listener on the same Gateway.
+# cleartext Hubble relay listener on the same Gateway. Stays on
+# var.allowed_source_ranges (not IAP) — this is app/browser traffic
+# (Grafana, dashboards, thump's HTTP access), not an admin channel, and
+# proxying a browser through an IAP tunnel is much clunkier than SSH/kubectl.
 resource "google_compute_firewall" "allow_gateway" {
   name          = "${var.cluster_name}-allow-gateway"
   network       = google_compute_network.main.id

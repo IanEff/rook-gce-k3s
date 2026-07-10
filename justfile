@@ -30,11 +30,12 @@ plan: init
 apply: init
     tofu apply
 
-# One-shot bootstrap: apply, fetch kubeconfig, write /etc/hosts entries, sanity check.
+# One-shot bootstrap: apply, fetch kubeconfig, write /etc/hosts entries.
 up: apply credentials
     @echo
-    @echo "Cluster is up. Sanity check:"
-    @kubectl --context ceph-gce get nodes
+    @echo "Cluster is up. The k3s API is IAP-tunnel-only — open one first:"
+    @echo "  just tunnel &"
+    @echo "then sanity check: kubectl --context ceph-gce get nodes"
     @echo
     @echo "Watch ArgoCD sync: kubectl --context ceph-gce get applications -n argocd -w"
 
@@ -62,8 +63,18 @@ hosts-remove:
     sudo python3 provisioning/scripts/manage_hosts.py remove
 
 # SSH to a node. target is "control-plane" (default) or "node-<n>", e.g. `just ssh node-2`.
+# Port 22 is IAP-only (network.tf) — requires roles/iap.tunnelResourceAccessor.
 ssh target="control-plane":
-    gcloud compute ssh {{cluster_name}}-{{target}} --zone={{zone}} --project={{project_id}}
+    gcloud compute ssh {{cluster_name}}-{{target}} --zone={{zone}} --project={{project_id}} --tunnel-through-iap
+
+# Open an IAP tunnel to the k3s API (port 6443 is IAP-only, see network.tf).
+# Foreground/blocking on purpose — leave it running in its own terminal (or
+# background it yourself with `just tunnel &`) for as long as you need
+# kubectl access; fetch_kubeconfig.py points the kubeconfig server at
+# 127.0.0.1:6443 to match.
+tunnel:
+    gcloud compute start-iap-tunnel {{cluster_name}}-control-plane 6443 \
+        --local-host-port=localhost:6443 --zone={{zone}} --project={{project_id}}
 
 # Regenerate Prometheus rule groups from the Sloth SLO specs (requires sloth-cli, yq).
 # Splices directly into applications/infrastructure/prometheus/values.yaml —

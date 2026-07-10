@@ -2,13 +2,15 @@
 """Fetch and merge kubeconfig for the rook-gce-k3s cluster.
 
 Ported from ceph-lab's manage_k8s_config.py: the transport becomes
-`gcloud compute ssh ... --command` (OS Login) instead of `limactl shell`, and
-the fetched kubeconfig's server URL is rewritten from the control-plane's
-INTERNAL static IP (what control-plane.sh's own kubeconfig already uses
-internally) to its EXTERNAL static IP, since that's the address reachable
-from your Mac. No TLS-verify skip is needed for this rewrite — k3s's
-tls-san list (control-plane.sh) already includes both IPs, so the existing
-CA still validates against the external address.
+`gcloud compute ssh ... --command` (OS Login, tunneled through IAP — port 22
+is IAP-only, see network.tf) instead of `limactl shell`, and the fetched
+kubeconfig's server URL is rewritten from the control-plane's INTERNAL
+static IP (what control-plane.sh's own kubeconfig already uses internally)
+to 127.0.0.1, since the k3s API (port 6443) is also IAP-only now — reaching
+it requires `just tunnel` running locally (gcloud compute start-iap-tunnel
+... 6443 --local-host-port=localhost:6443). No TLS-verify skip is needed for
+this rewrite — k3s's tls-san list (control-plane.sh) includes 127.0.0.1
+specifically so the existing CA validates through the tunnel.
 
 Usage:
     python3 fetch_kubeconfig.py add    (requires: tofu output values below)
@@ -21,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 KUBE_CONFIG_PATH = Path.home() / ".kube" / "config"
@@ -28,6 +31,13 @@ KUBE_CONFIG_PATH = Path.home() / ".kube" / "config"
 NEW_CONTEXT_NAME = "ceph-gce"
 NEW_USER_NAME = "ceph-gce-admin"
 NEW_CLUSTER_NAME = "ceph-gce-cluster"
+
+# control-plane.sh runs k3s + Cilium install after boot; SSH (and even OS
+# Login key propagation) can be reachable well before /root/.kube/config
+# exists. `just up` chains `apply` straight into `credentials` with no wait
+# of its own, so this script retries instead of failing on the first race.
+KUBECONFIG_WAIT_TIMEOUT_S = 600
+KUBECONFIG_WAIT_INTERVAL_S = 10
 
 
 def tofu_output(name: str) -> str:
@@ -44,7 +54,6 @@ def tofu_output(name: str) -> str:
 
 def backup_file(path: Path) -> None:
     if path.exists():
-        import time
         backup_path = path.with_suffix(f".bak.{int(time.time())}")
         shutil.copy2(path, backup_path)
         print(f"Backed up {path.name} to {backup_path.name}")
@@ -54,30 +63,41 @@ def add() -> None:
     project_id = os.environ.get("PROJECT_ID") or tofu_output_or_default()
     zone = os.environ.get("ZONE", "us-central1-a")
     cluster_name = os.environ.get("CLUSTER_NAME", "rook-gce-k3s")
-    external_ip = tofu_output("control_plane_external_ip")
     internal_ip = tofu_output("control_plane_internal_ip")
 
     instance = f"{cluster_name}-control-plane"
-    print(f"Fetching kubeconfig from {instance} via gcloud compute ssh...")
     cmd = [
         "gcloud", "compute", "ssh", instance,
-        f"--zone={zone}", f"--project={project_id}",
+        f"--zone={zone}", f"--project={project_id}", "--tunnel-through-iap",
         "--command=sudo cat /root/.kube/config",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"Failed to fetch kubeconfig: {result.stderr.strip()}", file=sys.stderr)
-        sys.exit(1)
+
+    print(f"Fetching kubeconfig from {instance} via gcloud compute ssh (IAP)...")
+    print(f"  (retrying up to {KUBECONFIG_WAIT_TIMEOUT_S}s — control-plane.sh installs k3s/Helm/Cilium after boot, "
+          "so the file may not exist yet even once SSH is reachable)")
+    deadline = time.time() + KUBECONFIG_WAIT_TIMEOUT_S
+    attempt = 0
+    while True:
+        attempt += 1
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            break
+        if time.time() >= deadline:
+            print(f"Failed to fetch kubeconfig after {KUBECONFIG_WAIT_TIMEOUT_S}s "
+                  f"({attempt} attempts): {result.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        print(f"  attempt {attempt}: not ready yet, retrying in {KUBECONFIG_WAIT_INTERVAL_S}s...")
+        time.sleep(KUBECONFIG_WAIT_INTERVAL_S)
 
     tmpdir = Path(tempfile.mkdtemp(prefix="rook_gce_k3s_"))
     temp_conf = tmpdir / "k3s.yaml"
     merged_conf = tmpdir / "kubeconfig.merged"
     try:
         content = result.stdout
-        # Rewrite server URL: internal IP (what control-plane.sh set) -> external
-        # IP (reachable from the Mac). tls-san already covers both, so no
-        # insecure-skip-tls-verify is needed.
-        content = content.replace(internal_ip, external_ip)
+        # Rewrite server URL: internal IP (what control-plane.sh set) ->
+        # 127.0.0.1 (what `just tunnel`'s IAP tunnel exposes locally).
+        # tls-san includes 127.0.0.1, so no insecure-skip-tls-verify is needed.
+        content = content.replace(internal_ip, "127.0.0.1")
         content = content.replace("current-context: default", f"current-context: {NEW_CONTEXT_NAME}")
         import re
         content = re.sub(r"\bcluster: default\b", f"cluster: {NEW_CLUSTER_NAME}", content)
@@ -101,7 +121,7 @@ def add() -> None:
         shutil.move(str(merged_conf), KUBE_CONFIG_PATH)
         KUBE_CONFIG_PATH.chmod(0o600)
         print(f"Kubeconfig updated. Context '{NEW_CONTEXT_NAME}' is now current.")
-        print(f"  Server: https://{external_ip}:6443")
+        print("  Server: https://127.0.0.1:6443 (requires `just tunnel` running)")
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

@@ -5,7 +5,8 @@
 # Run from the REPO ROOT on your Mac.
 #
 # Ported from ceph-lab's version: `limactl shell <node> -- sudo bash -s`
-# becomes `gcloud compute ssh <node> --zone --command`; OSD disk device names
+# becomes `gcloud compute ssh <node> --zone --tunnel-through-iap --command`
+# (port 22 is IAP-only, see network.tf); OSD disk device names
 # are discovered by globbing /dev/disk/by-id/google-osd-* (matches
 # cephcluster.yaml's devicePathFilter) instead of the fixed Lima vdc/vdd
 # names; node names come from `gcloud compute instances list` rather than a
@@ -73,7 +74,7 @@ kubectl delete namespace "$NAMESPACE" --ignore-not-found=true --timeout=30s || t
 echo "─── Step 6: Zero OSD disks on each worker node ──────────────────────────"
 for NODE in $NODE_NAMES; do
     echo "  Wiping ${NODE}..."
-    gcloud compute ssh "${NODE}" --project="${PROJECT_ID}" --zone="${ZONE}" --command='
+    gcloud compute ssh "${NODE}" --project="${PROJECT_ID}" --zone="${ZONE}" --tunnel-through-iap --command='
         set -e
         for dev in /dev/disk/by-id/google-osd-*; do
             [ -e "$dev" ] || continue

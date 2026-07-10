@@ -26,7 +26,8 @@ costs nothing once `tofu destroy` runs.
 just up              # tofu apply + fetch kubeconfig + write /etc/hosts entries
 just plan             # tofu plan
 just destroy          # tofu destroy — true zero-cost teardown, confirms first
-just ssh              # gcloud compute ssh to the control-plane (add `node-2` etc. for workers)
+just ssh              # gcloud compute ssh --tunnel-through-iap to the control-plane (add `node-2` etc. for workers)
+just tunnel            # open an IAP tunnel to the k3s API (127.0.0.1:6443) — needed for kubectl
 just credentials      # re-fetch kubeconfig + /etc/hosts after a restart
 just gen-slos          # regenerate Sloth-derived Prometheus rules (requires sloth-cli, yq)
 just wipe-ceph-disks    # reinstall Rook without rebuilding VMs
@@ -51,14 +52,21 @@ the GitOps layer.
    ranges (Cilium brings its own pod/service IPAM — see
    `applications/config/gitops.env`'s `POD_CIDR`/`SERVICE_CIDR` — unlike GKE
    VPC-native, which is why `rook-gke`'s `vpc.tf` needs secondary ranges and
-   this repo's doesn't). Firewall rules are scoped to `var.allowed_source_ranges`
-   (no default — every user must supply their own IP allowlist).
+   this repo's doesn't). SSH (22) and the k3s API (6443) are IAP-tunnel-only,
+   gated by GCP's fixed IAP source range rather than `var.allowed_source_ranges`
+   — those are admin channels used from a roaming laptop, and IAP authenticates
+   by IAM identity instead of source IP, so there's no client IP to allowlist.
+   Only the Cilium Gateway (80/443/4245 — actual app/browser traffic) is
+   scoped to `var.allowed_source_ranges` (no default — every user must supply
+   their own IP allowlist for that).
 2. **Compute (`compute.tf`)** — one control-plane + `var.num_ceph_nodes`
    worker instances, stock `ubuntu-2404-lts-amd64` (not GKE's node image —
    this is why `rbd-module-loader.tf`'s whole workaround has no equivalent
    here; see gotcha below). Non-preemptible on purpose. OS Login
    (`enable-oslogin=TRUE`), not a fixed injected keypair/username — SSH via
-   `gcloud compute ssh` or `just ssh`.
+   `gcloud compute ssh --tunnel-through-iap` or `just ssh` (requires
+   `roles/iap.tunnelResourceAccessor` in addition to `roles/compute.osLoginUser`).
+   kubectl access requires `just tunnel` running locally (IAP tunnel to 6443).
 3. **Storage** — `google_compute_disk.osd` resources (small, `pd-standard`),
    attached to each worker with an explicit `device_name` so
    `applications/rook/cluster/cephcluster.yaml`'s `devicePathFilter` can match
@@ -174,6 +182,21 @@ justfile
     `DOMAIN`/`WILDCARD_DOMAIN` ever change. No IP SAN (unlike ceph-lab's
     original) since the external IP isn't known until `tofu apply` and every
     client here already connects `--insecure` anyway.
+12. **SSH and the k3s API are IAP-tunnel-only, not IP-allowlisted.** No
+    equivalent gotcha in ceph-lab or `rook-gke` (both are reached over a
+    stable local/VPN-adjacent network). Here the operator is a laptop that
+    roams between networks with unstable/CDN-relayed egress IPs (e.g. iCloud
+    Private Relay egressing through Fastly), so pinning `allowed_source_ranges`
+    to a client IP doesn't hold up. `network.tf`'s `allow_ssh`/`allow_k3s_api`
+    firewall rules are scoped to GCP's fixed IAP range instead — IAP
+    authenticates by IAM identity, not source IP. `just ssh` and
+    `fetch_kubeconfig.py` pass `--tunnel-through-iap`; kubectl access needs
+    `just tunnel` running locally (forwards 6443 to `127.0.0.1`, which is why
+    `control-plane.sh`'s `tls-san` includes `127.0.0.1`). The Cilium Gateway
+    (80/443/4245) is unaffected — that's app/browser traffic, not an admin
+    channel, and still uses `var.allowed_source_ranges`. Callers need
+    `roles/iap.tunnelResourceAccessor` in addition to the existing
+    `roles/compute.osLoginUser` requirement.
 
 ## Everything else in `applications/` (Rook, Cilium base config, Sloth, l7-policies, dashboards)
 
@@ -197,5 +220,7 @@ assuming it's undocumented.
   the running cluster.** Same philosophy as `rook-gke`: `tofu destroy` +
   `tofu apply` after fixing the root cause in the relevant file. This is a
   disposable test environment with no production data.
-- `var.allowed_source_ranges` has no default — set it explicitly (e.g. in a
-  gitignored `terraform.tfvars`) to your own IP before the first `tofu apply`.
+- `var.allowed_source_ranges` has no default and now only gates the Cilium
+  Gateway (80/443/4245) — set it explicitly (e.g. in a gitignored
+  `terraform.tfvars`) before the first `tofu apply`. SSH and the k3s API
+  don't need an entry here; they're IAP-tunnel-only (see gotcha #12 above).

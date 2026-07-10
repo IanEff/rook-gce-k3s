@@ -7,10 +7,11 @@
 #   - No "wait for + publish node-token" step — the k3s token is pre-shared
 #     via /etc/rook-gce-k3s.env (Tofu-generated random_password), so workers
 #     never have to wait on anything the control-plane produces at runtime.
-#   - tls-san includes BOTH the internal and external static IPs, since
-#     kubectl reaches this node via the external IP (fetch_kubeconfig.py
-#     rewrites the server URL to it) while other cluster nodes reach it via
-#     the internal IP.
+#   - tls-san includes the internal static IP (other cluster nodes reach this
+#     node via it), the external static IP (harmless to keep even though
+#     port 6443 is now IAP-only — see network.tf), and 127.0.0.1, since
+#     kubectl reaches this node through `just tunnel`'s local IAP tunnel and
+#     fetch_kubeconfig.py rewrites the server URL to 127.0.0.1 to match.
 set -euo pipefail
 
 if [ -f /etc/rook-gce-k3s-control-plane.done ]; then
@@ -58,6 +59,7 @@ cluster-domain: "cluster.local"
 tls-san:
   - "${CONTROL_PLANE_INTERNAL_IP}"
   - "${CONTROL_PLANE_EXTERNAL_IP}"
+  - "127.0.0.1"
 data-dir: "/var/lib/rancher/k3s"
 EOF
 
