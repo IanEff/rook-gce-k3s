@@ -1,0 +1,46 @@
+#!/bin/bash
+# rook-gce-k3s — control-plane-bootstrap.sh.tpl
+# Rendered by Tofu's templatefile() (compute.tf) into the control-plane
+# instance's metadata_startup_script. Deliberately thin: write the values Tofu
+# already knows to a plain env file, clone this repo, then hand off to the
+# real (untemplated, plain-bash) provisioning/scripts/control-plane.sh.
+set -euo pipefail
+
+cat > /etc/rook-gce-k3s.env <<'ENVEOF'
+CONTROL_PLANE_INTERNAL_IP=${control_plane_internal_ip}
+CONTROL_PLANE_EXTERNAL_IP=${control_plane_external_ip}
+K3S_TOKEN=${k3s_token}
+K3S_CHANNEL=${k3s_channel}
+GITOPS_REPO_URL=${gitops_repo_url}
+GITOPS_REPO_TOKEN=${gitops_repo_token}
+INSTALL_ARGOCD=${install_argocd}
+ENVEOF
+chmod 600 /etc/rook-gce-k3s.env
+
+%{ if gitops_ssh_key_content != "" }
+mkdir -p /root/.ssh
+cat > /root/.ssh/deploy_key <<'KEYEOF'
+${gitops_ssh_key_content}
+KEYEOF
+chmod 600 /root/.ssh/deploy_key
+echo "GITOPS_SSH_KEY_PATH=/root/.ssh/deploy_key" >> /etc/rook-gce-k3s.env
+%{ endif }
+
+set -a
+source /etc/rook-gce-k3s.env
+set +a
+
+apt-get update -y
+apt-get install -y git
+
+if [ -n "$${GITOPS_SSH_KEY_PATH:-}" ]; then
+    GIT_SSH_COMMAND="ssh -i $${GITOPS_SSH_KEY_PATH} -o StrictHostKeyChecking=no" \
+        git clone "$${GITOPS_REPO_URL}" /ceph-lab
+elif [ -n "$${GITOPS_REPO_TOKEN:-}" ]; then
+    AUTH_URL=$(echo "$${GITOPS_REPO_URL}" | sed "s#https://#https://git:$${GITOPS_REPO_TOKEN}@#")
+    git clone "$${AUTH_URL}" /ceph-lab
+else
+    git clone "$${GITOPS_REPO_URL}" /ceph-lab
+fi
+
+exec bash /ceph-lab/provisioning/scripts/control-plane.sh

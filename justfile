@@ -1,0 +1,84 @@
+# rook-gce-k3s lifecycle wrapper. `just` alone lists recipes.
+#
+# Unlike rook-gke's justfile, there's no gke-gcloud-auth-plugin PATH dance
+# here — Tofu only touches GCP (no kubernetes/helm providers), and kubectl
+# auth is just a fetched kubeconfig, not an exec-plugin.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+cluster_name := "rook-gce-k3s"
+zone := "us-central1-a"
+region := "us-central1"
+project_id := `gcloud config get-value project 2>/dev/null`
+
+default:
+    @just --list
+
+fmt:
+    tofu fmt -recursive
+
+init:
+    tofu init
+
+validate: init
+    tofu validate
+
+plan: init
+    tofu plan
+
+# Creates real, billed GCP resources — tofu itself prompts for confirmation.
+apply: init
+    tofu apply
+
+# One-shot bootstrap: apply, fetch kubeconfig, write /etc/hosts entries, sanity check.
+up: apply credentials
+    @echo
+    @echo "Cluster is up. Sanity check:"
+    @kubectl --context ceph-gce get nodes
+    @echo
+    @echo "Watch ArgoCD sync: kubectl --context ceph-gce get applications -n argocd -w"
+
+# Tears down every Tofu-managed resource (instances, OSD disks, static IPs,
+# firewall rules, subnet, VPC) — true zero cost from here, nothing left to
+# orphan since OSD disks are ordinary Tofu resources, not CSI-provisioned PVCs.
+[confirm("Permanently destroy all GCE resources for this cluster?")]
+destroy: init
+    tofu destroy
+    just hosts-remove
+    python3 provisioning/scripts/fetch_kubeconfig.py remove
+
+# Fetch kubeconfig (gcloud compute ssh transport, OS Login) and merge it in,
+# then write the fixed *.ceph-gce.lab hostnames into /etc/hosts.
+credentials: kubeconfig hosts
+
+kubeconfig:
+    PROJECT_ID={{project_id}} ZONE={{zone}} CLUSTER_NAME={{cluster_name}} \
+        python3 provisioning/scripts/fetch_kubeconfig.py add
+
+hosts:
+    sudo python3 provisioning/scripts/manage_hosts.py add "$(tofu output -raw control_plane_external_ip)"
+
+hosts-remove:
+    sudo python3 provisioning/scripts/manage_hosts.py remove
+
+# SSH to a node. target is "control-plane" (default) or "node-<n>", e.g. `just ssh node-2`.
+ssh target="control-plane":
+    gcloud compute ssh {{cluster_name}}-{{target}} --zone={{zone}} --project={{project_id}}
+
+# Regenerate Prometheus rule groups from the Sloth SLO specs (requires sloth-cli, yq).
+# Splices directly into applications/infrastructure/prometheus/values.yaml —
+# commit + push the diff and let ArgoCD reconcile; no kubectl apply needed.
+gen-slos:
+    provisioning/scripts/gen_slos.sh
+
+# DESTRUCTIVE: wipes all Rook Ceph resources + zeroes OSD disks, without
+# rebuilding VMs. Use to reinstall Rook without a full tofu destroy/apply cycle.
+wipe-ceph-disks:
+    PROJECT_ID={{project_id}} ZONE={{zone}} CLUSTER_NAME={{cluster_name}} \
+        provisioning/scripts/wipe_ceph_disks.sh
+
+# Emergency teardown via gcloud CLI directly, bypassing OpenTofu — for when
+# `just destroy` can't run (broken .terraform/, unresponsive API, etc).
+pull-ripcord:
+    PROJECT_ID={{project_id}} ZONE={{zone}} REGION={{region}} CLUSTER_NAME={{cluster_name}} \
+        provisioning/scripts/ripcord.sh

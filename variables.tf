@@ -1,0 +1,101 @@
+variable "project_id" {
+  description = "The GCP Project ID where resources will be provisioned."
+  type        = string
+  default     = "terraform-sandbox-430820"
+}
+
+variable "region" {
+  description = "The GCP region to provision the subnet in."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "zone" {
+  description = "Single GCP zone for every instance. Zonal (not regional) on purpose — this is a test rig for thump, not an HA service; a single zone means no cross-zone control-plane replication tax on standup/teardown."
+  type        = string
+  default     = "us-central1-a"
+}
+
+variable "cluster_name" {
+  description = "Prefix for every named resource (instances, disks, network, firewall rules)."
+  type        = string
+  default     = "rook-gce-k3s"
+}
+
+variable "num_ceph_nodes" {
+  description = "Number of k3s agent + Ceph OSD worker nodes."
+  type        = number
+  default     = 3
+}
+
+variable "osd_disks_per_node" {
+  description = "Number of raw OSD disks attached to each worker node."
+  type        = number
+  default     = 2
+}
+
+variable "osd_disk_size_gb" {
+  description = "Size of each OSD disk in GiB. Kept small on purpose — this is a low-traffic test cluster, not a capacity benchmark."
+  type        = number
+  default     = 10
+}
+
+variable "control_plane_machine_type" {
+  description = "Machine type for the k3s server node."
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "node_machine_type" {
+  description = "Machine type for each k3s agent / Ceph OSD node."
+  type        = string
+  default     = "e2-standard-2"
+}
+
+variable "boot_disk_size_gb" {
+  description = "Boot disk size for every instance. Sized to comfortably hold /var/lib/rancher (k3s data dir) on the boot disk itself — no separate Lima-style 'rancher' data disk is needed on GCE."
+  type        = number
+  default     = 30
+}
+
+variable "allowed_source_ranges" {
+  description = "CIDR allowlist for SSH (22), the k3s API (6443), and the Cilium Gateway (80/443/4245) firewall rules. No default on purpose — every user of this repo must explicitly scope this to their own IP (and thump's, if it runs elsewhere) rather than inherit a silently-permissive default."
+  type        = list(string)
+}
+
+variable "subnet_cidr" {
+  description = "CIDR range for the single custom subnet. Clear of k3s's pod (10.244.0.0/16) and service (10.96.0.0/12) CIDRs."
+  type        = string
+  default     = "10.10.0.0/24"
+}
+
+variable "k3s_channel" {
+  description = "k3s release channel."
+  type        = string
+  default     = "v1.33"
+}
+
+variable "gitops_repo_url" {
+  description = "Git URL of this repo (SSH or HTTPS) — passed to install_argocd.sh so ArgoCD can reconcile from it. Required for ArgoCD auto-bootstrap; leave blank and set install_argocd=false to skip."
+  type        = string
+  default     = ""
+}
+
+variable "gitops_repo_token" {
+  description = "GitHub token for HTTPS repo access (leave blank when using an SSH deploy key instead). Needs WRITE access, not just read — unlike ceph-lab, install_argocd.sh commits+pushes the CONTROL_PLANE_IP-substituted gitops.env back to this repo (see its step [5c]), because Cilium's Application is reconciled by ArgoCD from the real git remote on an ongoing basis, not just read once from the local bootstrap clone."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "gitops_ssh_key_path" {
+  description = "Local path to the SSH deploy private key (relative to repo root). Matches ceph-lab's convention: the key pair lives at the repo root and is gitignored. Leave blank to use gitops_repo_token (HTTPS) instead. Needs WRITE access — see gitops_repo_token's note on why."
+  type        = string
+  default     = "deploy_rook-gce-k3s"
+}
+
+variable "install_argocd" {
+  description = "Auto-bootstrap ArgoCD + the root Application during the control-plane's startup script. Requires gitops_repo_url."
+  type        = bool
+  default     = true
+}

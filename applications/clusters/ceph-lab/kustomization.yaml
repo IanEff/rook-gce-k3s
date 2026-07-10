@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+
+resources:
+  # Infrastructure (waves -15 → 10): Gateway API, Cilium, cert-manager,
+  # observability stack, policies, ArgoCD ingress
+  - infra-set.yaml
+
+  # Rook Ceph (waves 20 → 35): operator → cluster → storage → dashboards → routes
+  # rook-operator: hand-crafted (prune: false — can't template booleans in ApplicationSet)
+  # rook-cluster:  hand-crafted (prune: false + ignoreDifferences)
+  # rook-set:      storage / dashboards / gateway (uniform prune:true/selfHeal:true)
+  - rook-operator.yaml
+  - rook-cluster.yaml
+  - rook-set.yaml
+  # - thump.yaml

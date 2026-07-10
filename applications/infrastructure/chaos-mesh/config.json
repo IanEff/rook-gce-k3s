@@ -1,0 +1,6 @@
+{
+    "appName": "chaos-mesh",
+    "syncWave": "40",
+    "namespace": "chaos-mesh",
+    "localPath": "applications/infrastructure/chaos-mesh"
+}

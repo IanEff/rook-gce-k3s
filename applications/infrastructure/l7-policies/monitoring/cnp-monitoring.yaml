@@ -1,0 +1,38 @@
+# L4 policy for the monitoring namespace (Prometheus, Grafana).
+# L7 HTTP rules removed — they route through Cilium Envoy which stalls
+# intra-cluster traffic when Envoy is under pressure.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: l7-visibility
+  namespace: monitoring
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEntities: [ cluster ]
+      toPorts:
+        - ports:
+            - { port: "9090", protocol: TCP } # Prometheus server
+            - { port: "3000", protocol: TCP } # Grafana
+            - { port: "80", protocol: TCP }   # Prometheus service port
+            - { port: "8080", protocol: TCP } # kube-state-metrics (metrics)
+            - { port: "8081", protocol: TCP } # kube-state-metrics (telemetry)
+    - fromEntities: [ host, remote-node ]
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - { port: "53", protocol: UDP }
+            - { port: "53", protocol: TCP }
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEntities: [ cluster, kube-apiserver ]
+    - toEntities: [ world ]
+      toPorts:
+        - ports:
+            - { port: "80", protocol: TCP }
+            - { port: "443", protocol: TCP }

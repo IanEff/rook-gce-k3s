@@ -1,0 +1,157 @@
+# BUILD-TIME SPEC, NOT A LIVE K8S OBJECT — the Sloth runtime chart (and its
+# CRDs) were retired from this cluster: the standalone `prometheus` chart
+# reads no monitoring.coreos.com CRs, so a live Sloth controller generating
+# PrometheusRule CRs nobody consumes was pure overhead. This CRD-shaped YAML
+# is now only an input to `sloth generate` (provisioning/scripts/gen_slos.sh
+# / `just gen-slos`), which renders it to plain rule groups embedded in
+# applications/infrastructure/prometheus/values.yaml. Edit this file, run
+# `just gen-slos`, commit both.
+#
+# sloth_id is NOT metadata.name — Sloth computes it as "{spec.service}-{slo.name}"
+# (confirmed against sloth/internal/storage/io/k8s_sloth.go). service/name below
+# are chosen so the concatenation matches rattle's SLO.ID exactly, per the
+# design doc's Integration Contract:
+#   ceph-rgw-availability = service "ceph-rgw"  + name "availability"
+#   ceph-osd-latency      = service "ceph-osd"  + name "latency"
+#   ceph-health           = service "ceph"      + name "health"
+#   argocd-sync           = service "argocd"    + name "sync"
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: ceph-rgw-availability
+  namespace: monitoring
+spec:
+  service: ceph-rgw
+  labels:
+    lab: ceph-lab
+  slos:
+    - name: availability
+      objective: 99.9
+      description: >-
+        99.9% of RGW requests succeed. Backed by the Ceph mgr's own RGW perf
+        counters (ceph_rgw_req/ceph_rgw_failed_req), already scraped via the
+        rook-ceph-mgr Prometheus job. Only populates once RGW has served at
+        least one request — trigger applications/infrastructure/s3-traffic-generator
+        (kubectl exec ... -- /start-traffic.sh) to seed data.
+      sli:
+        events:
+          errorQuery: sum(rate(ceph_rgw_failed_req[{{.window}}]))
+          totalQuery: sum(rate(ceph_rgw_req[{{.window}}]))
+      alerting:
+        name: CephRGWAvailabilitySLO
+        labels:
+          severity: critical
+        pageAlert:
+          labels:
+            severity: critical
+        ticketAlert:
+          labels:
+            severity: warning
+---
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: ceph-osd-latency
+  namespace: monitoring
+spec:
+  service: ceph-osd
+  labels:
+    lab: ceph-lab
+  slos:
+    - name: latency
+      objective: 99
+      description: >-
+        99% of OSD writes complete under 100ms. Supersedes the hand-rolled
+        elk-slo-dashboard burn-rate rule (same underlying metrics) — see
+        applications/infrastructure/elk-slo-dashboard's removal in this same
+        change.
+        VERIFIED LIVE 2026-07-03 (see docs/ceph-lab-running-notes F4): the
+        le="0.049999" guess was wrong — ceph_osd_op_w_latency_bucket has no
+        50ms bucket. provisioning/scripts/ceph_latency_exporter.py's 2x
+        ladder starts at le="0.099999" (99999us, not 100000us), same as
+        mach-2's existing read-latency SLO. Objective corrected from
+        "<50ms" to "<100ms" to match the actual bucket boundary.
+      sli:
+        events:
+          totalQuery: sum(rate(ceph_osd_op_w_latency_count{job="ceph-latency-bridge"}[{{.window}}]))
+          errorQuery: >-
+            sum(rate(ceph_osd_op_w_latency_count{job="ceph-latency-bridge"}[{{.window}}]))
+            - sum(rate(ceph_osd_op_w_latency_bucket{job="ceph-latency-bridge",le="102.399999"}[{{.window}}]))
+      alerting:
+        name: CephOSDLatencySLO
+        labels:
+          severity: critical
+        pageAlert:
+          labels:
+            severity: critical
+        ticketAlert:
+          labels:
+            severity: warning
+---
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: ceph-health
+  namespace: monitoring
+spec:
+  service: ceph
+  labels:
+    lab: ceph-lab
+  slos:
+    - name: health
+      objective: 99.9
+      description: >-
+        99.9% of the time ceph_health_status reports OK (0). WARN (1) and
+        ERR (2) both count as a violation for this window (clamped to 1).
+      sli:
+        raw:
+          errorRatioQuery: max(avg_over_time(clamp_max(ceph_health_status, 1)[{{.window}}:1m]))
+      alerting:
+        name: CephHealthSLO
+        labels:
+          severity: critical
+        pageAlert:
+          labels:
+            severity: critical
+        ticketAlert:
+          labels:
+            severity: warning
+---
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: argocd-sync
+  namespace: monitoring
+spec:
+  service: argocd
+  labels:
+    lab: ceph-lab
+  slos:
+    - name: sync
+      objective: 99
+      description: >-
+        99% of the time all ArgoCD Applications report Synced. Depends on the
+        argocd-metrics scrape job added to
+        applications/infrastructure/prometheus/values.yaml in this same
+        change — argocd_app_info does not exist in Prometheus without it.
+        EXECUTION-TIME CHECKPOINT: confirm argocd_app_info's sync_status label
+        spelling against a live query once scraped; the vendored ArgoCD
+        install manifest (cluster-bootstrap/argocd/) is the source of truth
+        for the metric's actual shape at whatever "stable" resolved to when
+        this landed.
+      sli:
+        raw:
+          errorRatioQuery: >-
+            avg_over_time((count(argocd_app_info{sync_status!="Synced"}) or vector(0))[{{.window}}:1m])
+            /
+            avg_over_time(count(argocd_app_info)[{{.window}}:1m])
+      alerting:
+        name: ArgoCDSyncSLO
+        labels:
+          severity: critical
+        pageAlert:
+          labels:
+            severity: critical
+        ticketAlert:
+          labels:
+            severity: warning

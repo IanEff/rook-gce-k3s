@@ -1,0 +1,21 @@
+# GRPCRoute for Hubble relay — enables hubble CLI + external Hubble clients
+# to reach the relay via the Gateway on port 4245 (cleartext gRPC).
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: hubble-relay
+  namespace: kube-system
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: cilium-gateway
+      namespace: kube-system
+      sectionName: hubble-relay
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: hubble-relay
+          port: 80
+          weight: 1

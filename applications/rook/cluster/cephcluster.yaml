@@ -1,0 +1,179 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  # ── Ceph version ──────────────────────────────────────────────────────────
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.3 # Squid — keep in sync with toolbox.yaml
+    allowUnsupported: false
+
+  dataDirHostPath: /var/lib/rook
+
+  # ── MONs ──────────────────────────────────────────────────────────────────
+  mon:
+    count: 3
+    allowMultiplePerNode: false
+
+  # ── MGR ───────────────────────────────────────────────────────────────────
+  mgr:
+    count: 1
+    modules:
+      - name: pg_autoscaler
+        enabled: true
+      - name: rook
+        enabled: true
+
+  # ── Dashboard ─────────────────────────────────────────────────────────────
+  dashboard:
+    enabled: true
+    ssl: false # TLS terminated at the Cilium Gateway
+    # Wire the dashboard to the standalone Prometheus server so it can show
+    # cluster metrics. Using the cluster-internal URL avoids TLS issues.
+    prometheusEndpoint: http://prometheus-server.monitoring.svc.cluster.local
+    prometheusEndpointSSLVerify: false
+
+  # ── Observability ─────────────────────────────────────────────────────────
+  monitoring:
+    # Enable Prometheus metrics export from the MGR.
+    # Prometheus scrapes via service rook-ceph-mgr:9283.
+    enabled: true
+    metricsDisabled: false
+
+  # ── Networking ────────────────────────────────────────────────────────────
+  network:
+    connections:
+      compression:
+        enabled: false
+      encryption:
+        enabled: false
+      requireMsgr2: true
+
+  # ── Ceph config overrides ─────────────────────────────────────────────────
+  # Raise clock drift tolerance — VMs commonly drift more than the default
+  # 50ms, causing spurious HEALTH_WARN on mon.c after restarts.
+  #
+  # OSD recovery/backfill throttles are set conservatively here so recovery
+  # happens quietly in the background without competing with client I/O.
+  # See applications/rook/cluster/overlays/maintenance/ to shift posture.
+  cephConfig:
+    mon:
+      mon_clock_drift_allowed: "0.5"
+    osd:
+      osd_max_backfills: "1"
+      osd_recovery_max_active: "1"
+      osd_recovery_op_priority: "3"
+      osd_memory_target: "2147483648" # 2Gi — stable for 8GB nodes
+
+  # ── Ops safety ────────────────────────────────────────────────────────────
+  crashCollector:
+    disable: false
+  logCollector:
+    enabled: true
+    periodicity: daily
+    maxLogSize: 100M
+  disruptionManagement:
+    managePodBudgets: true
+    osdMaintenanceTimeout: 30
+  cleanupPolicy:
+    # Requires explicit string "yes-really-destroy-data" to trigger cluster wipe.
+    # Leave empty — use wipe_ceph_disks.sh instead.
+    confirmation: ""
+
+  # ── OSD storage ───────────────────────────────────────────────────────────
+  storage:
+    useAllNodes: true
+    useAllDevices: false
+    # GCE attached-disk device naming (/dev/sdb, /dev/sdc, ...) isn't a hard
+    # ordering guarantee, unlike Lima's fixed virtio-blk vdX naming — so match
+    # on the stable /dev/disk/by-id/google-<device_name> symlink instead.
+    # compute.tf sets device_name = "osd-<node>-<disk>" on every OSD disk's
+    # attached_disk block specifically so this filter has something durable to
+    # match. The control-plane node has no attached OSD disks, so despite
+    # useAllNodes it never matches anything there.
+    devicePathFilter: "^/dev/disk/by-id/google-osd-.*"
+    config:
+      storeType: bluestore
+
+  # ── Resource requests ─────────────────────────────────────────────────────
+  # Tuned for 6 GB worker nodes. Lower requests allow scheduling on busy nodes,
+  # while limits provide headroom for burst.
+  resources:
+    mon:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    mgr:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    osd:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "3Gi"
+    mds:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    mgr-sidecar:
+      requests:
+        cpu: "100m"
+        memory: "40Mi"
+      limits:
+        cpu: "200m"
+        memory: "100Mi"
+    crashcollector:
+      requests:
+        cpu: "15m"
+        memory: "60Mi"
+      limits:
+        cpu: "500m"
+        memory: "60Mi"
+    logcollector:
+      requests:
+        cpu: "100m"
+        memory: "100Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    cleanup:
+      requests:
+        cpu: "500m"
+        memory: "100Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+  # ── Placement ─────────────────────────────────────────────────────────────
+  # Prefer worker nodes — ceph-control is already busy (k3s API server, ArgoCD)
+  placement:
+    all:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+
+  # ── Priority classes ──────────────────────────────────────────────────────
+  priorityClassNames:
+    mon: system-node-critical
+    osd: system-node-critical
+    mgr: system-cluster-critical
+
+  skipUpgradeChecks: false
+  continueUpgradeAfterChecksEvenIfNotHealthy: false

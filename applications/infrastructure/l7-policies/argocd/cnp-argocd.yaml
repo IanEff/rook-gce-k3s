@@ -1,0 +1,35 @@
+# Network policy for ArgoCD namespace.
+# NOTE: No L7 HTTP rules — ArgoCD uses gRPC on port 8081 and Redis protocol on
+# 6379; L7 HTTP enforcement via Cilium Envoy proxy breaks those protocols.
+# Hubble L7 visibility for ArgoCD can be re-enabled once the cluster is stable.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: l7-visibility
+  namespace: argocd
+spec:
+  endpointSelector: {}
+  ingress:
+    # Allow all intra-cluster traffic (gRPC, Redis, Dex, metrics, etc.)
+    - fromEntities: [cluster, host, remote-node]
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - { port: "53", protocol: UDP }
+            - { port: "53", protocol: TCP }
+          rules:
+            dns:
+              - matchPattern: "*"
+    # All internal traffic (repo-server gRPC, Redis, kube-apiserver, etc.)
+    - toEntities: [cluster, kube-apiserver]
+    # Outbound world traffic (GitHub SSH for git, HTTPS for OCI/charts)
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - { port: "80", protocol: TCP }
+            - { port: "443", protocol: TCP }
+            - { port: "22", protocol: TCP } # git over SSH

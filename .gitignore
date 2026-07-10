@@ -1,0 +1,44 @@
+# OpenTofu
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+
+# NOTE: unlike ceph-lab, vendored Helm chart caches under applications/**/charts/
+# are NOT gitignored here — the control-plane node gets this repo via `git clone`
+# (no Lima virtiofs host-mount to fall back on), so the charts must be committed
+# for install_cilium.sh etc. to find them without a live network fetch at boot.
+
+# Local environment — never commit real credentials
+.env
+
+# Deploy key
+deploy_rook-gce-k3s
+deploy_rook-gce-k3s.pub
+
+# Kubeconfig fragments copied out during fetch_kubeconfig.py
+kubeconfig*.yaml
+
+# macOS junk
+.DS_Store
+**/.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Editors
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code project config (personal tool settings)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

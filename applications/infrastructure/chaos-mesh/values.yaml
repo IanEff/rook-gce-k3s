@@ -1,0 +1,17 @@
+# Wave 40 — after rook-cluster/rook-storage settle (wave 25/30), so
+# PodChaos/NetworkChaos/IOChaos experiments have real rook-ceph-osd/mon/mgr
+# pods to target. This is the concrete "let thump react to injected chaos"
+# piece: run experiments via `kubectl apply -f <chaos-cr>.yaml` against
+# rook-ceph pods and watch Prometheus/Grafana/ceph-latency-bridge reflect it.
+
+chaosDaemon:
+  # k3s's containerd socket is not at the usual /run/containerd path.
+  runtime: containerd
+  socketPath: /run/k3s/containerd/containerd.sock
+
+dashboard:
+  create: true
+  securityMode: false # matches this repo's "insecure everywhere, self-signed CA" posture
+
+controllerManager:
+  replicaCount: 1 # single-control-plane test rig; HA isn't the point here

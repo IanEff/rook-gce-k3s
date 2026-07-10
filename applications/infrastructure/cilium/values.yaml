@@ -1,0 +1,74 @@
+kubeProxyReplacement: true
+routingMode: native
+autoDirectNodeRoutes: true
+
+bpf:
+  masquerade: true
+
+datapathMode: netkit
+# GCE Ubuntu images use predictable ("ens*") interface naming; some images
+# still present "eth0". Match both rather than guessing one.
+devices:
+  - eth+
+  - ens+
+
+loadBalancer:
+  mode: snat
+  algorithm: maglev
+  acceleration: best-effort
+
+# No lbIPAM / l2announcements here (unlike ceph-lab's Lima host-only network,
+# GCP's routed VPC has no ARP broadcast domain for Cilium to answer on).
+# gatewayAPI.hostNetwork below makes Envoy bind directly to the control-plane
+# node's own ports 80/443/4245 instead of requesting a floating LB IP.
+gatewayAPI:
+  enabled: true
+  hostNetwork:
+    enabled: true
+    # Pin the Envoy hostNetwork pod to the control-plane node only — it's the
+    # only node whose IP is reserved/static and known ahead of time (gitops.env
+    # CONTROL_PLANE_IP / DNS). An empty selector would let it land on any
+    # node's IP, which would silently break the fixed hostname->IP mapping.
+    nodeLabelSelector:
+      matchLabels:
+        node-role.kubernetes.io/control-plane: "true"
+
+ipam:
+  operator:
+    clusterPoolIPv4PodCIDRList: ["10.244.0.0/16"]
+
+operator:
+  replicas: 1
+  dashboards:
+    enabled: false
+
+hubble:
+  enabled: true
+  metrics:
+    enabled:
+      - dns
+      - drop
+      # tcp/flow carry destination_workload so non-HTTP traffic (Ceph's binary
+      # msgr2 protocol between OSDs) is attributable per-destination — needed
+      # for a future HubbleTrafficSource blast-radius query. Previously only
+      # httpV2 had labelsContext, so OSD-pool traffic had zero destination
+      # attribution.
+      - "tcp:labelsContext=source_namespace,source_workload,destination_namespace,destination_workload"
+      - "flow:labelsContext=source_namespace,source_workload,destination_namespace,destination_workload"
+      - icmp
+      - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction"
+    # Dashboard ConfigMaps exceed the 262 KB annotation limit; disabled to
+    # unblock ArgoCD sync. Re-enable once a server-side-aware Grafana sidecar
+    # workflow is in place.
+    dashboards:
+      enabled: false
+    serviceMonitor:
+      # Disabled at bootstrap; enabled once Prometheus CRDs are established
+      enabled: false
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+
+dashboards:
+  enabled: false
