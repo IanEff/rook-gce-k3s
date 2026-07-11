@@ -109,6 +109,20 @@ justfile
    that node's own ports 80/443/4245 — no floating IP exists at all).
    `applications/infrastructure/cilium/lb-pool.yaml` and `gateway.yaml`'s
    `spec.addresses` pin have no equivalent here — don't recreate them.
+   **This mode needs `envoy.securityContext.capabilities` to explicitly grant
+   `NET_BIND_SERVICE` plus `keepCapNetBindService: true`** (also in
+   `cilium/values.yaml`) — the chart's default capability set
+   (`NET_ADMIN`/`SYS_ADMIN` only) doesn't include it, and a non-root process
+   can't bind a privileged port on the host netns without it. Without both,
+   every `cilium-envoy` pod on every node (not just the one the
+   `nodeLabelSelector` pins the Gateway to — the gap applies to the shared
+   per-node Envoy DaemonSet regardless of node) fails identically: `listener
+   ... failed to bind or apply socket options: cannot bind '0.0.0.0:80':
+   Permission denied`, retried in a tight ~15s loop forever. This was broken
+   for an entire session before being caught — it doesn't crash anything
+   loudly, it just means the Gateway never actually serves traffic. If
+   `0.0.0.0:80`/`:443` binds are failing in `cilium-envoy`'s own logs, check
+   this first.
 2. **`devicePathFilter`, not `deviceFilter`, in `cephcluster.yaml`.** GCE's
    attached-disk device naming (`/dev/sdb`, `/dev/sdc`, ...) isn't a hard
    ordering guarantee the way Lima's fixed `vdX` virtio-blk naming is. Match
@@ -142,13 +156,40 @@ justfile
 6. **`GITOPS_REPO_URL` placeholder substitution now gets committed + pushed
    back, not left uncommitted.** ceph-lab's own convention is "never commit a
    substituted URL" — but that only works because the Cilium pre-bootstrap
-   step (`install_argocd.sh` step [0]) applies directly from the local clone;
-   ArgoCD's *ongoing* reconciliation of the `cilium` Application still reads
+   step (`install_argocd.sh` step [0], run *before* the pre-bootstrap Cilium
+   apply specifically so that apply doesn't clobber the substitution with a
+   still-templated `kustomization.yaml` — this ordering bit us once, see git
+   history) applies directly from the local clone; ArgoCD's *ongoing*
+   reconciliation of the `cilium` Application still reads
    `gitops.env`/`cilium/kustomization.yaml`'s `CONTROL_PLANE_IP` from the real
-   git remote. `install_argocd.sh` step [5c] here commits and pushes the
-   substituted values back for exactly this reason. **This means the
-   `gitops_repo_token`/`gitops_ssh_key_path` credential needs WRITE access,
-   not just read** — different from ceph-lab's read-only assumption.
+   git remote. `install_argocd.sh` step [0c] here commits and pushes the
+   substituted values back for exactly this reason (fatally, not a
+   warn-and-continue — a failed push here leaves ArgoCD reconciling from a
+   permanently-placeholdered remote). **This means the credential used for
+   the clone/push needs WRITE access, not just read** — different from
+   ceph-lab's read-only assumption.
+
+   **Two separate credential paths — don't mix them up:**
+   - **Bootstrap push-back** (`control-plane-bootstrap.sh.tpl`'s clone +
+     `install_argocd.sh`'s push): uses `gitops_ssh_key_path` (SSH) if set,
+     else `gitops_repo_token` (HTTPS). Either needs WRITE. **If using the SSH
+     key, the clone URL must be rewritten from `https://host/owner/repo.git`
+     to `git@host:owner/repo.git`** — `GIT_SSH_COMMAND` is a no-op against an
+     `https://` URL (git never invokes `ssh` for that transport), so without
+     the rewrite the deploy key is silently unused: clone still succeeds
+     (anonymously, fine for a public repo's read) but the later push fails
+     with "could not read Username for 'https://github.com'". Both
+     `control-plane-bootstrap.sh.tpl` and `node-bootstrap.sh.tpl` do this
+     rewrite before using `GIT_SSH_COMMAND`.
+   - **ArgoCD's own ongoing clone** (every Application's `repoURL`, always
+     `https://` — see `gitops_repo_url`'s description in `variables.tf`):
+     needs `gitops_repo_token` (HTTPS username/password Secret) or nothing at
+     all if the repo is public. **Never hand it the SSH deploy key** — a
+     Repository Secret with `url: https://...` plus `sshPrivateKey` set is
+     self-contradictory (ArgoCD infers auth method from the URL scheme), and
+     every clone fails with `"invalid auth method"` instead of falling back
+     to anonymous HTTPS. `install_argocd.sh` step [4] deliberately has no SSH
+     branch for exactly this reason.
 7. **OS Login, not a fixed injected user/keypair.** `common.sh`'s shell
    ergonomics (fish/bash/vim/tmux dotfiles) install into `/etc/skel` and
    `/root`, not a single named user's home — GCE's OS Login provisions a
@@ -233,8 +274,12 @@ justfile
     taint. Any workload that legitimately needs to run there (none currently
     do; the Gateway binds hostNetwork ports but that's cilium-agent/
     cilium-envoy, already tolerating) needs an explicit toleration added, not
-    a hostname/label-based nodeSelector — see gotcha #15's Prometheus story
-    for what happens when a nodeSelector requires this node without one.
+    a hostname/label-based nodeSelector requiring this node — Prometheus was
+    briefly pinned here that way (for the same "stable known identity"
+    reason as the Gateway) and, with no matching toleration, became
+    permanently unschedulable all over again, just via a taint conflict
+    instead of a bad hostname. See `applications/infrastructure/prometheus/
+    values.yaml`'s comment.
 15. **The `cilium` Application never reaches ArgoCD "Healthy" — it sits at
     "Progressing" forever, and that's expected, not broken.** ArgoCD's
     default health check for a `Gateway` resource waits for
@@ -246,6 +291,27 @@ justfile
     sits `False`/`Pending`/`"Address not ready yet"` — the Gateway is fully
     functional, ArgoCD's health computation just doesn't know how to
     recognize that in this mode. Don't chase this as a bug.
+16. **`variables.tf`'s `node_machine_type_overrides` is a sparse, per-node
+    escape hatch for GCP's `CPUS_ALL_REGIONS` quota — expect it to be empty
+    on most projects, but don't be surprised if `terraform.tfvars` gives one
+    node a different machine type than the rest.** `node_machine_type`
+    defaults to `e2-standard-4` (workers need real CPU headroom once gotcha
+    #14's taint pushes Prometheus/Tempo/chaos-mesh/etc. onto them — confirmed
+    via `kubectl describe node`: every worker at 100% CPU *requests* on
+    `e2-standard-2`, 32 pods stuck Pending). But `e2-medium`(1 quota-vCPU,
+    shared-core) `+ 3× e2-standard-4`(4 each) `= 13`, one over a fresh
+    project's default 12 vCPU `CPUS_ALL_REGIONS` quota — and a self-service
+    increase request (`gcloud alpha quotas preferences create`, both a
+    minimal +1 and a larger +4 tried) was denied outright for this project's
+    billing tier; a real increase needs a manual support request, not
+    something a same-session fix can wait on. `node_machine_type_overrides`
+    (map, node index as string key → machine type) downsizes one node in the
+    gitignored `terraform.tfvars` to fit under quota without changing the
+    shared default every user of this repo gets. If `tofu apply` ever fails
+    with `Quota 'CPUS_ALL_REGIONS' exceeded`, check `gcloud alpha quotas info
+    list --service=compute.googleapis.com --project=<id>` for current
+    usage/limit before assuming the machine-type default itself needs to
+    change.
 
 ## Everything else in `applications/` (Rook, Cilium base config, Sloth, l7-policies, dashboards)
 

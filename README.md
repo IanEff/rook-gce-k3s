@@ -16,10 +16,16 @@ cheap when up, and stable** for chaos experiments.
 # 1. Set your IP allowlist and GitOps repo (gitignored)
 cat > terraform.tfvars <<EOF
 allowed_source_ranges = ["YOUR.IP.HERE/32"]
-gitops_repo_url        = "git@github.com:YOUR_USERNAME/rook-gce-k3s.git"
+gitops_repo_url        = "https://github.com/YOUR_USERNAME/rook-gce-k3s.git"
 EOF
-# Deploy key needs WRITE access — see CLAUDE.md gotcha #6 for why.
-# Put the private half at ./deploy_rook-gce-k3s (gitignored).
+# Must be https://, not git@ — ArgoCD's Application sources and its
+# repo-access Secret are both https:// throughout this repo. See CLAUDE.md
+# gotcha #6 for the two separate credential paths (bootstrap push-back vs.
+# ArgoCD's own clone) and why mixing them up breaks one or the other.
+#
+# Deploy key needs WRITE access (for the bootstrap push-back only — ArgoCD
+# itself clones anonymously if the repo's public, or via gitops_repo_token
+# if not). Put the private half at ./deploy_rook-gce-k3s (gitignored).
 
 # 2. Stand up the cluster (~2-4 min: no GKE control plane, no regional
 #    replication — just a handful of GCE VMs booting k3s)
