@@ -112,7 +112,7 @@ resource "google_compute_disk" "osd" {
 resource "google_compute_instance" "node" {
   count        = var.num_ceph_nodes
   name         = "${var.cluster_name}-node-${count.index + 1}"
-  machine_type = var.node_machine_type
+  machine_type = lookup(var.node_machine_type_overrides, tostring(count.index), var.node_machine_type)
   zone         = var.zone
   tags         = ["${var.cluster_name}-node"]
 

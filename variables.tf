@@ -52,6 +52,12 @@ variable "node_machine_type" {
   default     = "e2-standard-4"
 }
 
+variable "node_machine_type_overrides" {
+  description = "Sparse per-node machine_type override, keyed by node index as a string (\"0\", \"1\", ...), applied instead of var.node_machine_type for that node only. Exists solely to fit under a GCP project's CPUS_ALL_REGIONS quota without changing the shared default every user of this repo gets — e.g. this project's 12 vCPU quota (denied on a self-service increase request, both +4 and +1) is exactly 1 vCPU short of 3x e2-standard-4 workers, so terraform.tfvars downsizes one node to e2-standard-2 (gitignored, per-environment — not committed here). Leave empty ({}) if your quota has room for the uniform default."
+  type        = map(string)
+  default     = {}
+}
+
 variable "boot_disk_size_gb" {
   description = "Boot disk size for every instance. Sized to comfortably hold /var/lib/rancher (k3s data dir) on the boot disk itself — no separate Lima-style 'rancher' data disk is needed on GCE."
   type        = number
