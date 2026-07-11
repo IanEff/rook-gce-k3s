@@ -102,26 +102,15 @@ echo "[3] Apply local bootstrap patches (insecure mode, kustomize-helm, bcrypt p
 kubectl apply --server-side -k /ceph-lab/cluster-bootstrap/argocd/
 
 echo "[4] Configure repository access"
-if [ -n "$GITOPS_SSH_KEY_PATH" ] && [ -f "${GITOPS_SSH_KEY_PATH}" ]; then
-    echo "  Using SSH deploy key: ${GITOPS_SSH_KEY_PATH}"
-    SSH_KEY_INDENTED=$(awk '{print "    " $0}' "${GITOPS_SSH_KEY_PATH}")
-    kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: rook-gce-k3s-repo
-  namespace: argocd
-  labels:
-    argocd.argoproj.io/secret-type: repository
-type: Opaque
-stringData:
-  type: git
-  url: "${GITOPS_REPO_URL}"
-  insecureIgnoreHostKey: "true"
-  sshPrivateKey: |
-${SSH_KEY_INDENTED}
-EOF
-elif [ -n "$GITOPS_REPO_TOKEN" ]; then
+# Deliberately no SSH-deploy-key branch here: GITOPS_REPO_URL (and every
+# Application source built from it) is an https:// URL throughout this repo,
+# and ArgoCD picks its auth method from the repo URL's scheme — a Repository
+# Secret with url: https://... plus sshPrivateKey set is self-contradictory,
+# and ArgoCD fails every clone with "invalid auth method" rather than falling
+# back to anonymous HTTPS. The SSH deploy key (GITOPS_SSH_KEY_PATH) is only
+# for this bootstrap script's own git push in step [0c]; it was never a
+# credential ArgoCD's repo-server can actually use against an https:// source.
+if [ -n "$GITOPS_REPO_TOKEN" ]; then
     echo "  Using HTTPS token"
     kubectl apply -f - <<EOF
 apiVersion: v1
