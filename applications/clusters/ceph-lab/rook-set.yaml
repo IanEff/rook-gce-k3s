@@ -32,3 +32,20 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+        # ArgoCD's default retry (limit 5, backoff 5s/factor 2/max 3m — total
+        # window ~2.5m) isn't automatic-retry insurance the way selfHeal is:
+        # once a sync's retries are exhausted for a given git revision,
+        # ArgoCD logs "Skipping auto-sync: failed previous sync attempt ...
+        # and will not retry" and just sits there — selfHeal only corrects
+        # drift on an already-synced app, it does not re-attempt a failed
+        # initial sync. rook-dashboards' PrometheusRule (a monitoring.coreos.com
+        # CRD instance) has twice lost a race against the separate
+        # prometheus-operator-crds Application's CRD registration — observed
+        # gap ~2-3 minutes, just past the default retry window. This longer
+        # backoff (spans ~20+ minutes across 10 attempts) gives real margin.
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
