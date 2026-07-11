@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get *)",
+      "Bash(go test *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(helm show *)",
+      "Bash(helm template *)",
+      "Bash(make ci)",
+      "Bash(go doc *)",
+      "Bash(make lint)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl config *)",
+      "Bash(gcloud info *)",
+      "Bash(tofu plan *)",
+      "Bash(tofu validate *)",
+      "Bash(kubeconform *)",
+      "Bash(gcloud compute disks list *)",
+      "Bash(gcloud container operations *)",
+      "Bash(go list *)",
+      "Bash(git fetch *)",
+      "Bash(tofu console *)",
+      "Bash(golangci-lint *)",
+      "Bash(gcloud compute instances list *)",
+      "Bash(gcloud compute firewall-rules list *)",
+      "Bash(gcloud compute start-iap-tunnel *)",
+      "Bash(kubectl describe *)",
+      "Bash(gcloud compute networks list *)",
+      "Bash(gcloud container clusters describe *)",
+      "Bash(gcloud container clusters list *)",
+      "Bash(tofu show *)",
+      "Bash(kubectl auth can-i *)",
+      "Bash(gcloud compute networks subnets list *)"
+    ]
+  }
+}

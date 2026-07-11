@@ -26,9 +26,9 @@ validate: init
 plan: init
     tofu plan
 
-# Creates real, billed GCP resources — tofu itself prompts for confirmation.
+# Creates real, billed GCP resources.
 apply: init
-    tofu apply
+    tofu apply -auto-approve
 
 # One-shot bootstrap: apply, fetch kubeconfig, write /etc/hosts entries.
 up: apply credentials
@@ -42,9 +42,8 @@ up: apply credentials
 # Tears down every Tofu-managed resource (instances, OSD disks, static IPs,
 # firewall rules, subnet, VPC) — true zero cost from here, nothing left to
 # orphan since OSD disks are ordinary Tofu resources, not CSI-provisioned PVCs.
-[confirm("Permanently destroy all GCE resources for this cluster?")]
 destroy: init
-    tofu destroy
+    tofu destroy -auto-approve
     just hosts-remove
     python3 provisioning/scripts/fetch_kubeconfig.py remove
 
@@ -57,10 +56,10 @@ kubeconfig:
         python3 provisioning/scripts/fetch_kubeconfig.py add
 
 hosts:
-    sudo python3 provisioning/scripts/manage_hosts.py add "$(tofu output -raw control_plane_external_ip)"
+    sudo python3 {{justfile_directory()}}/provisioning/scripts/manage_hosts.py add "$(tofu output -raw control_plane_external_ip)"
 
 hosts-remove:
-    sudo python3 provisioning/scripts/manage_hosts.py remove
+    sudo python3 {{justfile_directory()}}/provisioning/scripts/manage_hosts.py remove
 
 # SSH to a node. target is "control-plane" (default) or "node-<n>", e.g. `just ssh node-2`.
 # Port 22 is IAP-only (network.tf) — requires roles/iap.tunnelResourceAccessor.
