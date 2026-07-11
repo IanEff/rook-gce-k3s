@@ -17,8 +17,17 @@ server:
     size: 10Gi
     storageClass: "local-path"
 
+  # Pinned to the control-plane node for the same reason Cilium's Gateway is
+  # (see cilium/values.yaml's nodeLabelSelector): it's the only node whose
+  # identity is known/stable ahead of time. ceph-lab's original used a
+  # hardcoded `kubernetes.io/hostname: lima-ceph-control` — Lima's fixed VM
+  # hostname convention, which doesn't exist on GCE (node names here are
+  # rook-gce-k3s-control-plane / -node-N) and left this pod permanently
+  # unschedulable ("didn't match Pod's node affinity/selector"). Match on the
+  # role label instead, which k3s sets on any control-plane node regardless
+  # of hostname.
   nodeSelector:
-    kubernetes.io/hostname: lima-ceph-control
+    node-role.kubernetes.io/control-plane: "true"
 
   resources:
     requests:

@@ -3,6 +3,23 @@ kind: Kustomization
 
 namespace: rook-ceph
 
+resources:
+  # Moved from applications/rook/cluster: PrometheusRule is a CRD-provided
+  # kind (monitoring.coreos.com), and rook-cluster's syncPolicy deliberately
+  # sets selfHeal: false (so ArgoCD doesn't fight the Rook operator's own
+  # status patches on the CephCluster CR — see rook-cluster.yaml's comment).
+  # That combination means if rook-cluster's *one* automated sync attempt
+  # ever loses the race against prometheus-operator-crds's CRD registration
+  # (a real, observed failure: "could not find monitoring.coreos.com/
+  # PrometheusRule ... CRD" during ArgoCD's own API-discovery-cache lag
+  # right after CRD install), ArgoCD gives up permanently — no self-heal to
+  # retry it, forcing a manual `argocd app sync`. This app's syncPolicy has
+  # selfHeal: true and a much later sync-wave (31, vs. rook-cluster's 25 and
+  # prometheus-operator-crds's -6), so it actually retries and has ample
+  # margin for the CRD to be registered. Keep the CephCluster CR itself
+  # decoupled from this non-critical alerting resource.
+  - prometheus-rules.yaml
+
 # Each ConfigMap holds one Grafana dashboard JSON.
 # Grafana's sidecar (searchNamespace: ALL, label: grafana_dashboard: "1")
 # picks these up automatically from any namespace.
