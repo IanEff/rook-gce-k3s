@@ -230,7 +230,22 @@ justfile
     (coredns, metrics-server, local-path-provisioner) or any workload stuck
     Pending with a `node(s) had untolerated taint` event, that's this taint
     doing its job — the fix is scheduling it onto a worker, not removing the
-    taint.
+    taint. Any workload that legitimately needs to run there (none currently
+    do; the Gateway binds hostNetwork ports but that's cilium-agent/
+    cilium-envoy, already tolerating) needs an explicit toleration added, not
+    a hostname/label-based nodeSelector — see gotcha #15's Prometheus story
+    for what happens when a nodeSelector requires this node without one.
+15. **The `cilium` Application never reaches ArgoCD "Healthy" — it sits at
+    "Progressing" forever, and that's expected, not broken.** ArgoCD's
+    default health check for a `Gateway` resource waits for
+    `status.conditions[type=Programmed]=True`, which in turn waits for
+    `status.addresses` to populate — but `gatewayAPI.hostNetwork` mode (see
+    gotcha #1) has no floating LB IP to report there by design, so that
+    condition legitimately never flips true. Confirmed directly: `Accepted`
+    and `ResolvedRefs` are both `True` on every listener, only `Programmed`
+    sits `False`/`Pending`/`"Address not ready yet"` — the Gateway is fully
+    functional, ArgoCD's health computation just doesn't know how to
+    recognize that in this mode. Don't chase this as a bug.
 
 ## Everything else in `applications/` (Rook, Cilium base config, Sloth, l7-policies, dashboards)
 
