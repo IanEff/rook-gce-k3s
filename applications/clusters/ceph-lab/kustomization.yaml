@@ -15,3 +15,8 @@ resources:
   - rook-cluster.yaml
   - rook-set.yaml
   # - thump.yaml
+
+  # s3-traffic-generator: hand-crafted (selfHeal: false — see comment in
+  # s3-traffic-generator.yaml; `just generate-traffic` needs to drift live
+  # replica count without ArgoCD fighting it)
+  - s3-traffic-generator.yaml

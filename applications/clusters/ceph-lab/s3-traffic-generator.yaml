@@ -1,0 +1,29 @@
+# s3-traffic-generator — hand-crafted (prune: true, selfHeal: false — can't
+# template booleans in ApplicationSet, see rook-operator.yaml).
+# selfHeal is deliberately off: `just generate-traffic` intentionally spawns
+# extra traffic loops inside the single live pod at runtime, and a selfHeal
+# ApplicationSet-templated Application would fight that by reverting any live
+# drift back to the git-declared state on every reconcile.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: s3-traffic-generator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/IanEff/rook-gce-k3s.git
+    targetRevision: HEAD
+    path: applications/infrastructure/s3-traffic-generator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
