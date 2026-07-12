@@ -30,6 +30,15 @@ spec:
       verifyImages:
         - imageReferences:
             - "ghcr.io/ianeff/thump-*"
+          # Kyverno requires this explicit false whenever
+          # validationFailureAction is Audit (audit mode can't safely
+          # mutate the admitted object) — mutateDigest defaults to true,
+          # and leaving it unset makes the whole ClusterPolicy invalid.
+          # Confirmed live 2026-07-12: both `kyverno apply` and a
+          # server-side dry-run against the cluster's own
+          # validate-policy.kyverno.svc webhook rejected this file
+          # without this field, which is why it had never actually synced.
+          mutateDigest: false
           attestors:
             - entries:
                 - keyless:
