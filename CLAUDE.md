@@ -312,6 +312,50 @@ justfile
     list --service=compute.googleapis.com --project=<id>` for current
     usage/limit before assuming the machine-type default itself needs to
     change.
+17. **New: Kyverno (admission-controller-only, Audit mode).**
+    `applications/infrastructure/kyverno/` (sync-wave 40, same tier as
+    chaos-mesh) installs the upstream `kyverno/kyverno` chart v3.8.2 via
+    `helmCharts:` in `kustomization.yaml` — not vendored, fetched live by
+    argocd-repo-server, same as chaos-mesh (gotcha #10). Unlike chaos-mesh's
+    kustomization, this one has **no top-level `namespace:` field** — the
+    chart's `namespace: kyverno` is set only inside the `helmCharts:` entry,
+    because a top-level namespace transformer would risk stamping
+    `metadata.namespace` onto the cluster-scoped `ClusterPolicy` sibling
+    resource (kustomize doesn't know custom CRD kinds are cluster-scoped;
+    confirmed empirically — `kubectl kustomize --enable-helm` renders the
+    policy with no `namespace:` line under `metadata:` only because of this
+    omission). `values.yaml` sets `backgroundController.enabled`,
+    `cleanupController.enabled`, and `reportsController.enabled` all to
+    `false` — only the always-on `admissionController` runs (confirmed via
+    the same render: exactly one `Deployment`,
+    `kyverno-admission-controller`), since the sole purpose here is a
+    `verifyImages` gate at pod-create time, not policy reporting/cleanup/
+    background remediation. The sibling `verify-thump-images-policy.yaml`
+    ClusterPolicy (loaded via a plain `resources:` entry alongside
+    `helmCharts:`, `includeCRDs: true` — same mixed-file pattern as
+    `applications/infrastructure/cilium/kustomization.yaml`) ships as
+    `validationFailureAction: Audit` + `failurePolicy: Ignore` +
+    `background: false`, NOT Enforce: as of 2026-07-11, `cosign verify`
+    against Rekor confirms only `thump-clank` and `thump-rattle` images
+    carry a `.sig` tag on GHCR (signed via an interactive `make sign-images`
+    browser OIDC login as ian.furst@gmail.com through GitHub's Fulcio
+    issuer, `https://github.com/login/oauth` — there is no CI signing
+    workflow in the `thump` repo). `thump-hiss` and `thump-thump` have never
+    been signed. Flipping `validationFailureAction` to `Enforce` before all
+    four beats are signed would hard-deny hiss/thump pod creation
+    cluster-wide the moment ArgoCD syncs. **Do not flip to Enforce** without
+    first running `make sign-images` for all four beats in the `thump` repo
+    and confirming via `kubectl get clusterpolicyreport,policyreport -A`
+    that no fail entries remain for `ghcr.io/ianeff/thump-*`. If the
+    `thump` repo ever adds CI-based (GitHub Actions OIDC) signing, this
+    policy's `subject`/`issuer` will need updating or broadening to a
+    regex (`subjectRegExp`/`issuerRegExp`) to also trust
+    `https://token.actions.githubusercontent.com` — the current exact-string
+    attestor only trusts the interactive human login identity. No
+    CiliumNetworkPolicy was added for the `kyverno` namespace, matching the
+    chaos-mesh precedent (gotcha #10) — no per-namespace CNP exists there
+    either, and no cluster-wide default-deny exists in
+    `applications/infrastructure/l7-policies/`.
 
 ## Everything else in `applications/` (Rook, Cilium base config, Sloth, l7-policies, dashboards)
 
