@@ -17,3 +17,28 @@ output "ssh_control_plane_command" {
   description = "Ready-to-run SSH command for the control-plane node. Uses OS Login via gcloud (tied to your gcloud identity/IAM) rather than a fixed username/injected keypair, tunneled through IAP since port 22 is IAP-only (see network.tf) — the caller needs both roles/compute.osLoginUser and roles/iap.tunnelResourceAccessor (or admin) on the project."
   value       = "gcloud compute ssh ${var.cluster_name}-control-plane --zone=${var.zone} --project=${var.project_id} --tunnel-through-iap"
 }
+
+# thump's S3-compatible object store (storage.tf) — feeds the four
+# S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY/S3_SECRET_KEY values thump's beats
+# require in the broker path. The endpoint is a fixed GCS constant, not a
+# per-bucket attribute — it's the same for every bucket in every project.
+output "thump_s3_endpoint" {
+  description = "GCS's S3-compatible XML/interop API endpoint — always this value, independent of bucket/region."
+  value       = "https://storage.googleapis.com"
+}
+
+output "thump_s3_bucket" {
+  description = "Name of the bucket thump's WAL shipper / S3Store write to."
+  value       = google_storage_bucket.thump_wal.name
+}
+
+output "thump_s3_access_key" {
+  description = "HMAC access ID for thump's dedicated storage service account — not secret on its own (paired with thump_s3_secret_key)."
+  value       = google_storage_hmac_key.thump_storage.access_id
+}
+
+output "thump_s3_secret_key" {
+  description = "HMAC secret for thump's dedicated storage service account. Sensitive — `tofu output -raw thump_s3_secret_key` to retrieve it for .env, never printed by a bare `tofu output`/`apply`."
+  value       = google_storage_hmac_key.thump_storage.secret
+  sensitive   = true
+}

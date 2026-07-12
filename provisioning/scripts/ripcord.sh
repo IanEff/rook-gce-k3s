@@ -28,7 +28,7 @@ echo "Cluster:  ${CLUSTER_NAME}"
 echo
 
 # --- 1. Instances (compute.tf: google_compute_instance.control_plane, .node) ---
-echo "[1/6] Deleting instances..."
+echo "[1/9] Deleting instances..."
 mapfile -t instances < <(gcloud compute instances list --project="${PROJECT_ID}" \
   --filter="name~'^${CLUSTER_NAME}-'" --format="value(name)" 2>/dev/null || true)
 if [ "${#instances[@]}" -eq 0 ]; then
@@ -41,7 +41,7 @@ fi
 echo
 
 # --- 2. OSD disks (compute.tf: google_compute_disk.osd) ---
-echo "[2/6] Deleting OSD disks..."
+echo "[2/9] Deleting OSD disks..."
 mapfile -t osd_disks < <(gcloud compute disks list --project="${PROJECT_ID}" \
   --filter="name~'^${CLUSTER_NAME}-osd-'" --format="value(name)" 2>/dev/null || true)
 if [ "${#osd_disks[@]}" -eq 0 ]; then
@@ -54,7 +54,7 @@ fi
 echo
 
 # --- 3. Static IPs (compute.tf: google_compute_address.control_plane_internal/_external) ---
-echo "[3/6] Deleting static IPs..."
+echo "[3/9] Deleting static IPs..."
 gcloud compute addresses delete "${CLUSTER_NAME}-control-plane-internal" \
   --region="${REGION}" --project="${PROJECT_ID}" --quiet 2>&1 || echo "  -> internal address already deleted or not found."
 gcloud compute addresses delete "${CLUSTER_NAME}-control-plane-external" \
@@ -62,7 +62,7 @@ gcloud compute addresses delete "${CLUSTER_NAME}-control-plane-external" \
 echo
 
 # --- 4. Firewall rules (network.tf) ---
-echo "[4/6] Deleting firewall rules..."
+echo "[4/9] Deleting firewall rules..."
 for fw in allow-ssh allow-k3s-api allow-gateway allow-internal; do
   gcloud compute firewall-rules delete "${CLUSTER_NAME}-${fw}" \
     --project="${PROJECT_ID}" --quiet 2>&1 || echo "  -> ${CLUSTER_NAME}-${fw} already deleted or not found."
@@ -70,15 +70,58 @@ done
 echo
 
 # --- 5. Subnetwork (network.tf: google_compute_subnetwork.main) ---
-echo "[5/6] Deleting subnetwork..."
+echo "[5/9] Deleting subnetwork..."
 gcloud compute networks subnets delete "${CLUSTER_NAME}-subnet" \
   --region="${REGION}" --project="${PROJECT_ID}" --quiet 2>&1 || echo "  -> already deleted or not found."
 echo
 
 # --- 6. VPC network (network.tf: google_compute_network.main) ---
-echo "[6/6] Deleting VPC network..."
+echo "[6/9] Deleting VPC network..."
 gcloud compute networks delete "${CLUSTER_NAME}-vpc" \
   --project="${PROJECT_ID}" --quiet 2>&1 || echo "  -> already deleted or not found."
+echo
+
+# --- 7. thump storage HMAC key (storage.tf: google_storage_hmac_key.thump_storage) ---
+# Deleted before the service account it belongs to -- an HMAC key isn't
+# automatically cleaned up when its service account is deleted, it just goes
+# permanently orphaned/unusable, so it has to be deactivated+deleted explicitly.
+echo "[7/9] Deleting thump storage HMAC key..."
+sa_email="${CLUSTER_NAME}-thump-storage@${PROJECT_ID}.iam.gserviceaccount.com"
+mapfile -t hmac_keys < <(gcloud storage hmac list --service-account="${sa_email}" \
+  --project="${PROJECT_ID}" --format="value(metadata.accessId)" 2>/dev/null || true)
+if [ "${#hmac_keys[@]}" -eq 0 ]; then
+  echo "  -> none found."
+else
+  for key in "${hmac_keys[@]}"; do
+    gcloud storage hmac update "${key}" --deactivate --project="${PROJECT_ID}" --quiet 2>&1 \
+      || echo "  -> deactivate of ${key} failed, check manually."
+    gcloud storage hmac delete "${key}" --project="${PROJECT_ID}" --quiet 2>&1 \
+      || echo "  -> delete of ${key} failed, check manually."
+  done
+fi
+echo
+
+# --- 8. thump storage service account (storage.tf: google_service_account.thump_storage) ---
+echo "[8/9] Deleting thump storage service account..."
+gcloud iam service-accounts delete "${sa_email}" \
+  --project="${PROJECT_ID}" --quiet 2>&1 || echo "  -> already deleted or not found."
+echo
+
+# --- 9. thump WAL/transcript bucket (storage.tf: google_storage_bucket.thump_wal) ---
+# Name carries a random suffix (global bucket-name uniqueness, see storage.tf),
+# so it's matched by prefix rather than looked up by exact name like the SA above.
+echo "[9/9] Deleting thump WAL/transcript bucket..."
+mapfile -t thump_buckets < <(gcloud storage buckets list --project="${PROJECT_ID}" \
+  --filter="name~'^${CLUSTER_NAME}-thump-wal-'" --format="value(name)" 2>/dev/null || true)
+if [ "${#thump_buckets[@]}" -eq 0 ]; then
+  echo "  -> none found."
+else
+  for bucket in "${thump_buckets[@]}"; do
+    # --recursive deletes all object versions and the bucket itself in one call.
+    gcloud storage rm --recursive "gs://${bucket}" --quiet 2>&1 \
+      || echo "  -> delete of ${bucket} failed, check manually."
+  done
+fi
 echo
 
 # --- Verify: re-list every resource type independently rather than trusting
@@ -110,6 +153,12 @@ check_gone "Subnetwork" \
   "gcloud compute networks subnets list --project '${PROJECT_ID}' --filter=\"name=${CLUSTER_NAME}-subnet\" --format='value(name)'"
 check_gone "VPC network" \
   "gcloud compute networks list --project '${PROJECT_ID}' --filter=\"name=${CLUSTER_NAME}-vpc\" --format='value(name)'"
+check_gone "thump storage HMAC keys" \
+  "gcloud storage hmac list --service-account '${sa_email}' --project '${PROJECT_ID}' --format='value(metadata.accessId)'"
+check_gone "thump storage service account" \
+  "gcloud iam service-accounts list --project '${PROJECT_ID}' --filter=\"email=${sa_email}\" --format='value(email)'"
+check_gone "thump WAL/transcript bucket" \
+  "gcloud storage buckets list --project '${PROJECT_ID}' --filter=\"name~'^${CLUSTER_NAME}-thump-wal-'\" --format='value(name)'"
 
 echo
 if [ "$status" -eq 0 ]; then

@@ -30,14 +30,23 @@ plan: init
 apply: init
     tofu apply -auto-approve
 
-# One-shot bootstrap: apply, fetch kubeconfig, write /etc/hosts entries.
-up: apply credentials
+# One-shot bootstrap: apply, fetch kubeconfig, write /etc/hosts entries,
+# sync thump's S3 credentials into its .env (thump-env below).
+up: apply credentials thump-env
     @echo
     @echo "Cluster is up. The k3s API is IAP-tunnel-only — open one first:"
     @echo "  just tunnel &"
     @echo "then sanity check: kubectl --context ceph-gce get nodes"
     @echo
     @echo "Watch ArgoCD sync: kubectl --context ceph-gce get applications -n argocd -w"
+
+# Push storage.tf's S3 outputs (bucket/endpoint/HMAC key) into thump's .env
+# — its Tiltfile's thump-s3-secret local_resource reads from there. Re-run
+# any time you `destroy`/`apply` this rig, not just once: the bucket and its
+# key are ordinary Tofu state, recreated with a new name/secret each cycle.
+# THUMP_ENV_PATH overrides the default sibling-repo path.
+thump-env:
+    python3 provisioning/scripts/sync_thump_env.py
 
 # Tears down every Tofu-managed resource (instances, OSD disks, static IPs,
 # firewall rules, subnet, VPC) — true zero cost from here, nothing left to
