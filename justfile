@@ -93,11 +93,18 @@ gen-slos:
 # Scale s3-traffic-generator to n replicas and start the loop on every pod.
 # `rollout status` returns as soon as containers are running, ahead of the
 # CRI catching up — an exec right after can 500 with "container not found";
-# `kubectl wait --for=condition=ready` closes that race. /start-traffic.sh
-# never returns, so it's launched nohup'd and backgrounded inside the exec
-# session — the session can then close without SIGHUPing it. Its stdout/stderr
-# are redirected to /proc/1/fd/{1,2} (the container's own PID 1 streams, not
-# the exec session's) so the traffic loop's output actually shows up in
+# `kubectl wait --for=condition=ready` closes that race. The container has no
+# readiness probe though, so "ready" doesn't mean /start-traffic.sh exists yet
+# — it's only written after the container's entrypoint finishes `pip install`
+# (~20-30s). Execing nohup before that raced and failed with "No such file or
+# directory" on every freshly-created pod, silently (the failure only showed
+# up in the pod's own log, which nothing was checking) — so each `kubectl
+# wait pod --for=condition=ready` pass here is followed by a poll for
+# /start-traffic.sh's existence before the exec. /start-traffic.sh never
+# returns, so it's launched nohup'd and backgrounded inside the exec session —
+# the session can then close without SIGHUPing it. Its stdout/stderr are
+# redirected to /proc/1/fd/{1,2} (the container's own PID 1 streams, not the
+# exec session's) so the traffic loop's output actually shows up in
 # `kubectl logs` — /dev/null previously made this unverifiable from outside
 # the pod. /start-traffic.sh itself is idempotent (pidfile-guarded) so
 # re-running this on already-running pods won't stack duplicate loops.
@@ -105,7 +112,12 @@ generate-traffic n:
     kubectl scale deployment/s3-traffic-generator -n default --replicas={{n}}
     kubectl rollout status deployment/s3-traffic-generator -n default --timeout=120s
     kubectl wait pod -n default -l app=s3-traffic-generator --for=condition=ready --timeout=120s
-    for pod in $(kubectl get pods -n default -l app=s3-traffic-generator -o jsonpath='{.items[*].metadata.name}'); do echo "starting traffic on $pod"; kubectl exec -n default "$pod" -- sh -c 'nohup /start-traffic.sh > /proc/1/fd/1 2> /proc/1/fd/2 &'; done
+    for pod in $(kubectl get pods -n default -l app=s3-traffic-generator -o jsonpath='{.items[*].metadata.name}'); do \
+        echo "waiting for /start-traffic.sh on $pod"; \
+        kubectl exec -n default "$pod" -- sh -c 'i=0; until [ -f /start-traffic.sh ]; do i=$((i+1)); if [ $i -ge 60 ]; then echo "$0: /start-traffic.sh never appeared" >&2; exit 1; fi; sleep 2; done'; \
+        echo "starting traffic on $pod"; \
+        kubectl exec -n default "$pod" -- sh -c 'nohup /start-traffic.sh > /proc/1/fd/1 2> /proc/1/fd/2 &'; \
+    done
     sleep 8
     echo "--- proof of life (last 3 lines per pod) ---"
     kubectl logs -n default -l app=s3-traffic-generator --tail=3 --prefix
