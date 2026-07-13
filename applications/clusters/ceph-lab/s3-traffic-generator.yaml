@@ -1,9 +1,20 @@
 # s3-traffic-generator — hand-crafted (prune: true, selfHeal: false — can't
 # template booleans in ApplicationSet, see rook-operator.yaml).
-# selfHeal is deliberately off: `just generate-traffic` intentionally spawns
-# extra traffic loops inside the single live pod at runtime, and a selfHeal
-# ApplicationSet-templated Application would fight that by reverting any live
-# drift back to the git-declared state on every reconcile.
+# selfHeal is deliberately off: `just generate-traffic` intentionally scales
+# the Deployment live at runtime, and a selfHeal ApplicationSet-templated
+# Application would fight that by reverting any live drift back to the
+# git-declared state on every reconcile.
+#
+# selfHeal:false alone isn't sufficient, though — confirmed live on
+# 2026-07-13: an automated sync (initiatedBy.automated, same revision, no
+# new commit) fired the instant `kubectl scale --replicas=5` ran and
+# reapplied the Deployment from git (replicas: 1), deleting 4 of the 5 new
+# pods within seconds and breaking `just generate-traffic`'s `kubectl wait`
+# (NotFound on a pod ArgoCD had just deleted out from under it). Root cause
+# of that specific auto-sync trigger wasn't pinned down, but the fix is the
+# same either way: ignoreDifferences on spec.replicas below makes ArgoCD
+# exclude replica count from diffing entirely, so no sync — triggered by
+# drift, retry, or otherwise — can ever revert it, independent of selfHeal.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -27,3 +38,10 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: s3-traffic-generator
+      namespace: default
+      jsonPointers:
+        - /spec/replicas

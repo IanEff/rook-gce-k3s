@@ -111,7 +111,18 @@ gen-slos:
 generate-traffic n:
     kubectl scale deployment/s3-traffic-generator -n default --replicas={{n}}
     kubectl rollout status deployment/s3-traffic-generator -n default --timeout=120s
-    kubectl wait pod -n default -l app=s3-traffic-generator --for=condition=ready --timeout=120s
+    # `kubectl wait` pins to the pod names it saw at list-time; if one gets
+    # replaced mid-wait (chaos-mesh, node eviction, ArgoCD drift-revert, ...)
+    # it hard-fails with NotFound instead of re-checking. Poll by label
+    # instead so a replaced pod is just picked up fresh on the next pass.
+    end=$(($(date +%s) + 120)); \
+    while true; do \
+        ready=$(kubectl get pods -n default -l app=s3-traffic-generator -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null | grep -c '^true$' || true); \
+        echo "waiting for ready pods: $ready/{{n}}"; \
+        [ "$ready" -ge "{{n}}" ] && break; \
+        if [ $(date +%s) -ge $end ]; then echo "timed out waiting for {{n}} ready pods" >&2; exit 1; fi; \
+        sleep 3; \
+    done
     for pod in $(kubectl get pods -n default -l app=s3-traffic-generator -o jsonpath='{.items[*].metadata.name}'); do \
         echo "waiting for /start-traffic.sh on $pod"; \
         kubectl exec -n default "$pod" -- sh -c 'i=0; until [ -f /start-traffic.sh ]; do i=$((i+1)); if [ $i -ge 60 ]; then echo "$0: /start-traffic.sh never appeared" >&2; exit 1; fi; sleep 2; done'; \
