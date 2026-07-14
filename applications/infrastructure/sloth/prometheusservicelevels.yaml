@@ -12,6 +12,7 @@
 # are chosen so the concatenation matches rattle's SLO.ID exactly, per the
 # design doc's Integration Contract:
 #   ceph-rgw-availability = service "ceph-rgw"  + name "availability"
+#   ceph-rgw-saturation   = service "ceph-rgw"  + name "saturation"
 #   ceph-osd-latency      = service "ceph-osd"  + name "latency"
 #   ceph-health           = service "ceph"      + name "health"
 #   argocd-sync           = service "argocd"    + name "sync"
@@ -39,6 +40,67 @@ spec:
           totalQuery: sum(rate(ceph_rgw_req[{{.window}}]))
       alerting:
         name: CephRGWAvailabilitySLO
+        labels:
+          severity: critical
+        pageAlert:
+          labels:
+            severity: critical
+        ticketAlert:
+          labels:
+            severity: warning
+---
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: ceph-rgw-saturation
+  namespace: monitoring
+spec:
+  service: ceph-rgw
+  labels:
+    lab: ceph-lab
+  slos:
+    - name: saturation
+      objective: 99
+      description: >-
+        99% of the time RGW's own GET+PUT op latency (rgw_l_get_initial_lat /
+        rgw_l_put_initial_lat, the RGW perf-counter AvgTime pair scraped
+        alongside ceph_rgw_req/ceph_rgw_failed_req via the same rook-ceph-mgr
+        job — no separate exporter needed, unlike ceph-osd-latency's
+        ceph-latency-bridge bridge) averages under 100ms. Exists to close the
+        gap phase-e-earn-the-ceiling-guide's Part 2 D2 crux identified: the
+        availability SLO (ceph_rgw_failed_req, abort_early()-only, see
+        rgw-failure-injection.md) structurally cannot see a backend-slow-under-
+        load dependency_saturation shape — every mechanism that isn't a
+        pre-execution rejection (PG-starve, network delay/loss on RGW) leaves
+        failed_req untouched but does move this counter. RAW SLI, not an
+        event ratio (RGW exposes AvgTime sum/count, not a latency histogram
+        the way OSD's perf-histogram-dump-derived bridge does) — same
+        threshold-as-violation-ratio shape as ceph-health's clamp_max, not a
+        literal fraction of bad requests. Like ceph-rgw-availability, only
+        populates once RGW has served at least one GET or PUT (division by
+        zero otherwise) — seed with
+        applications/infrastructure/s3-traffic-generator.
+        ⚠️ UNVERIFIED METRIC NAMES — the rig was down (empty tofu state) when
+        this SLO was authored, so ceph_rgw_l_get_initial_lat_sum/_count and
+        ceph_rgw_l_put_initial_lat_sum/_count are transcribed from RGW's perf
+        counter schema (rgw_perf_counters.cc, l_rgw_get_initial_lat /
+        l_rgw_put_initial_lat, both PERFCOUNTER_LATENCY), not confirmed
+        against a live scrape. Before trusting this SLO: `curl -s
+        "$PROM_URL/api/v1/label/__name__/values" | grep rgw_.*lat` and fix
+        the query below if the mgr module renders these under different
+        names.
+      sli:
+        raw:
+          errorRatioQuery: >-
+            clamp_max(
+              (
+                (sum(rate(ceph_rgw_l_get_initial_lat_sum[{{.window}}])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[{{.window}}])))
+                /
+                (sum(rate(ceph_rgw_l_get_initial_lat_count[{{.window}}])) + sum(rate(ceph_rgw_l_put_initial_lat_count[{{.window}}])))
+              ) / 0.1
+            , 1)
+      alerting:
+        name: CephRGWSaturationSLO
         labels:
           severity: critical
         pageAlert:
