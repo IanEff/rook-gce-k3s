@@ -281,9 +281,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[5m])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[5m])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[5m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[5m])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[5m])) + sum(rate(ceph_rgw_l_put_initial_lat_count[5m])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[5m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[5m])))
                 ) / 0.1
               , 1))
             labels:
@@ -296,9 +296,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[30m])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[30m])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[30m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[30m])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[30m])) + sum(rate(ceph_rgw_l_put_initial_lat_count[30m])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[30m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[30m])))
                 ) / 0.1
               , 1))
             labels:
@@ -311,9 +311,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[1h])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[1h])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[1h])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1h])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[1h])) + sum(rate(ceph_rgw_l_put_initial_lat_count[1h])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[1h])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1h])))
                 ) / 0.1
               , 1))
             labels:
@@ -326,9 +326,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[2h])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[2h])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[2h])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[2h])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[2h])) + sum(rate(ceph_rgw_l_put_initial_lat_count[2h])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[2h])) + sum(rate(ceph_rgw_op_put_obj_lat_count[2h])))
                 ) / 0.1
               , 1))
             labels:
@@ -341,9 +341,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[6h])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[6h])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[6h])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[6h])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[6h])) + sum(rate(ceph_rgw_l_put_initial_lat_count[6h])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[6h])) + sum(rate(ceph_rgw_op_put_obj_lat_count[6h])))
                 ) / 0.1
               , 1))
             labels:
@@ -356,9 +356,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[1d])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[1d])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[1d])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1d])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[1d])) + sum(rate(ceph_rgw_l_put_initial_lat_count[1d])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[1d])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1d])))
                 ) / 0.1
               , 1))
             labels:
@@ -371,9 +371,9 @@ serverFiles:
           - expr: |-
               (clamp_max(
                 (
-                  (sum(rate(ceph_rgw_l_get_initial_lat_sum[3d])) + sum(rate(ceph_rgw_l_put_initial_lat_sum[3d])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[3d])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[3d])))
                   /
-                  (sum(rate(ceph_rgw_l_get_initial_lat_count[3d])) + sum(rate(ceph_rgw_l_put_initial_lat_count[3d])))
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[3d])) + sum(rate(ceph_rgw_op_put_obj_lat_count[3d])))
                 ) / 0.1
               , 1))
             labels:
