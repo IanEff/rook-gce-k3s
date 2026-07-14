@@ -429,6 +429,49 @@ justfile
     commit or a manual `argocd app sync`/resync will unstick it. Per this
     repo's own rule (see Notes below), the durable fix is the retry budget
     in git, not a one-off manual resync against the live cluster.
+19. **`s3-traffic-generator`'s `ObjectBucketClaim` can sit at `Phase:
+    Pending` forever after a fresh `just up`, even though gotcha #18's retry
+    budget is in place and the `s3-traffic-generator` Application itself
+    shows `Synced`/healthy — this is a *different* race than #18, one level
+    deeper, and the ArgoCD-level retry does nothing for it.** Gotcha #18's
+    retry budget only covers getting the OBC *manifest* applied (surviving
+    the CRD-not-registered-yet window); it says nothing about what happens
+    after the OBC object exists. Confirmed live (2026-07-14): the OBC
+    (`kubectl get obc -n default`) reached `Synced` immediately, but
+    `rook-ceph-operator`'s own bucket-provisioner controller — a completely
+    separate reconcile loop from ArgoCD's sync engine, with no YAML-exposed
+    retry/backoff knob anywhere in this repo or upstream Rook — made exactly
+    one provisioning attempt a few minutes after `CephObjectStore` first
+    reported `phase: Ready`, and failed with `failed to create s3 user ...
+    failed to load realm: (2) No such file or directory` because the actual
+    RGW `Deployment` (created out-of-band by the operator, not tracked by
+    ArgoCD at all) hadn't finished its own bring-up yet — on a truly fresh
+    cluster, real OSD/pool/realm/zone creation can take far longer in wall
+    clock time than `CephObjectStore`'s `phase: Ready` implies (confirmed:
+    CR reported `Ready` well before the RGW `Deployment` even existed, and
+    the operator's own pool-reconciliation + "creating object store" log
+    lines didn't finish until minutes later). After that one failed attempt,
+    the controller did not retry again on its own within at least 4-5
+    minutes — no further reconcile fired even after the RGW pod became fully
+    healthy. Net effect: the `traffic-generator-bucket` configmap/Secret
+    (which `s3-traffic-generator`'s pods mount for S3 creds) never get
+    created, every pod sits `ContainerCreating` forever citing
+    `FailedMount: configmap "traffic-generator-bucket" not found, secret
+    "traffic-generator-bucket" not found`, and `just generate-traffic`
+    times out on `kubectl rollout status` — while every ArgoCD-visible
+    signal (`Application` health, OBC `Synced` state) looks completely
+    fine. There is no manifest-level fix available (no OBC/Rook field tunes
+    this controller's retry cadence), so unlike gotcha #18 this one can't be
+    fixed by committing a different retry budget — it's expected, one-time,
+    self-resolving-in-principle behavior on a fresh stand-up, just with an
+    inconveniently long/unclear actual retry window. **If `kubectl get obc
+    <name> -n <ns>` is stuck `Pending` and `kubectl describe cephobjectstore
+    -n rook-ceph` plus the RGW pod both look healthy, force an immediate
+    reconcile** with `kubectl annotate obc <name> -n <ns>
+    force-resync="$(date +%s)" --overwrite` — this only nudges Rook's own
+    controller to retry sooner against already-correct git-declared state,
+    it does not hand-patch any desired state, same category as the
+    `argocd app sync` exception gotcha #18 already carves out.
 
 ## Everything else in `applications/` (Rook, Cilium base config, Sloth, l7-policies, dashboards)
 
