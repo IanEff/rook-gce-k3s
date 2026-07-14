@@ -279,13 +279,15 @@ serverFiles:
       - name: sloth-slo-sli-recordings-ceph-rgw-saturation
         rules:
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[5m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[5m])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[5m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[5m])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[5m:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation
@@ -294,13 +296,15 @@ serverFiles:
               sloth_window: 5m
             record: slo:sli_error:ratio_rate5m
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[30m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[30m])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[30m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[30m])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[30m:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation
@@ -309,13 +313,15 @@ serverFiles:
               sloth_window: 30m
             record: slo:sli_error:ratio_rate30m
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[1h])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1h])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[1h])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1h])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[1h:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation
@@ -324,13 +330,15 @@ serverFiles:
               sloth_window: 1h
             record: slo:sli_error:ratio_rate1h
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[2h])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[2h])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[2h])) + sum(rate(ceph_rgw_op_put_obj_lat_count[2h])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[2h:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation
@@ -339,13 +347,15 @@ serverFiles:
               sloth_window: 2h
             record: slo:sli_error:ratio_rate2h
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[6h])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[6h])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[6h])) + sum(rate(ceph_rgw_op_put_obj_lat_count[6h])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[6h:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation
@@ -354,13 +364,15 @@ serverFiles:
               sloth_window: 6h
             record: slo:sli_error:ratio_rate6h
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[1d])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1d])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[1d])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1d])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[1d:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation
@@ -369,13 +381,15 @@ serverFiles:
               sloth_window: 1d
             record: slo:sli_error:ratio_rate1d
           - expr: |-
-              (clamp_max(
+              (avg_over_time(
                 (
-                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[3d])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[3d])))
-                  /
-                  (sum(rate(ceph_rgw_op_get_obj_lat_count[3d])) + sum(rate(ceph_rgw_op_put_obj_lat_count[3d])))
-                ) / 0.1
-              , 1))
+                  (
+                    (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                    /
+                    (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                  ) > bool 0.15
+                )[3d:1m]
+              ))
             labels:
               lab: ceph-lab
               sloth_id: ceph-rgw-saturation

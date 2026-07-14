@@ -66,7 +66,7 @@ spec:
         / ceph_rgw_op_put_obj_lat, the RGW perf-counter AvgTime pair scraped
         alongside ceph_rgw_req/ceph_rgw_failed_req via the same rook-ceph-mgr
         job — no separate exporter needed, unlike ceph-osd-latency's
-        ceph-latency-bridge bridge) averages under 100ms. Exists to close the
+        ceph-latency-bridge bridge) stays under 150ms. Exists to close the
         gap phase-e-earn-the-ceiling-guide's Part 2 D2 crux identified: the
         availability SLO (ceph_rgw_failed_req, abort_early()-only, see
         rgw-failure-injection.md) structurally cannot see a backend-slow-under-
@@ -74,11 +74,10 @@ spec:
         pre-execution rejection (PG-starve, network delay/loss on RGW) leaves
         failed_req untouched but does move this counter. RAW SLI, not an
         event ratio (RGW exposes AvgTime sum/count, not a latency histogram
-        the way OSD's perf-histogram-dump-derived bridge does) — same
-        threshold-as-violation-ratio shape as ceph-health's clamp_max, not a
-        literal fraction of bad requests. Like ceph-rgw-availability, only
-        populates once RGW has served at least one GET or PUT (division by
-        zero otherwise) — seed with
+        the way OSD's perf-histogram-dump-derived bridge does) — but NOT the
+        original "avg_latency / threshold, clamp_max 1" shape either. Like
+        ceph-rgw-availability, only populates once RGW has served at least
+        one GET or PUT (division by zero otherwise) — seed with
         applications/infrastructure/s3-traffic-generator.
         METRIC NAMES VERIFIED LIVE 2026-07-14 against ceph-gce's real scrape
         (`curl -s "$PROM_URL/api/v1/label/__name__/values" | grep
@@ -88,16 +87,35 @@ spec:
         rgw_l_put_initial_lat names this SLO originally guessed from
         rgw_perf_counters.cc (those don't exist on this scrape at all; the
         per-op op_*_lat counters are the ones actually exported).
+        SLI SHAPE CORRECTED 2026-07-14: the original errorRatioQuery
+        (`(latency/0.1) clamp_max 1`) fed the raw latency-to-threshold ratio
+        directly into Sloth's burn-rate math, which treats errorRatioQuery
+        as if it WERE the error fraction — dividing by the 1% (99%
+        objective) error budget. That's not a fraction of anything; it's a
+        continuous "how close to the ceiling" number, so it always over-
+        burns unless the threshold is set >100x baseline latency (verified
+        live: healthy baseline was 14-17ms blended, and burn_rate read 17.3
+        — 17x over budget — with HEALTH_OK and zero real degradation;
+        ceph-health/ceph-osd-latency both read exactly 0 at the same
+        baseline for comparison). Fixed by making the SLI a real 0-1
+        fraction: "what fraction of the window was latency over the line,"
+        not "how far over the line is the current average." Threshold
+        bumped 100ms->150ms in the same pass (~9x the observed 14-17ms
+        baseline, real headroom against jitter) — but the ratio-shape fix
+        is what actually matters; the old shape would still misfire at any
+        threshold under ~1.7s (baseline * 100, from the 1% budget math).
       sli:
         raw:
           errorRatioQuery: >-
-            clamp_max(
+            avg_over_time(
               (
-                (sum(rate(ceph_rgw_op_get_obj_lat_sum[{{.window}}])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[{{.window}}])))
-                /
-                (sum(rate(ceph_rgw_op_get_obj_lat_count[{{.window}}])) + sum(rate(ceph_rgw_op_put_obj_lat_count[{{.window}}])))
-              ) / 0.1
-            , 1)
+                (
+                  (sum(rate(ceph_rgw_op_get_obj_lat_sum[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_sum[1m])))
+                  /
+                  (sum(rate(ceph_rgw_op_get_obj_lat_count[1m])) + sum(rate(ceph_rgw_op_put_obj_lat_count[1m])))
+                ) > bool 0.15
+              )[{{.window}}:1m]
+            )
       alerting:
         name: CephRGWSaturationSLO
         labels:
