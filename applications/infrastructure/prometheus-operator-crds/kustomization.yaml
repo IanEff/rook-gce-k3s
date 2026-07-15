@@ -6,10 +6,18 @@ namespace: monitoring
 # PodMonitor, etc.), owned by this app alone — applications/infrastructure/
 # prometheus/values.yaml sets crds.enabled: false so kube-prometheus-stack's
 # own bundled CRDs subchart never fights this app over the same resources.
-# Must deploy before wave -5 (prometheus, cilium, sloth) so CRDs exist when
-# those apps' ServiceMonitor/PrometheusRule CRs and the operator itself land.
-# Version bumped 28.0.1 -> 30.0.1 to track kube-prometheus-stack 87.15.2's
-# operator (appVersion v0.92.1).
+# Must deploy before wave -10 (cilium) and wave -5 (prometheus, sloth, tempo,
+# grafana) so CRDs exist when those apps' ServiceMonitor/PrometheusRule CRs
+# and the operator itself land. syncWave is -11 for exactly this reason — it
+# was previously -6 (after cilium's -10), which meant even ArgoCD's own
+# ongoing reconciliation of the cilium Application hit the same
+# CRD-not-registered "no matches for kind ServiceMonitor" failure cilium's
+# bootstrap-time raw `helm install` (provisioning/scripts/install_cilium.sh)
+# hits structurally on every fresh `just up` (that install always runs
+# before ArgoCD exists at all, so it can never see this app's CRDs — see the
+# --set overrides there that disable ServiceMonitor for that one install
+# only). Version bumped 28.0.1 -> 30.0.1 to track kube-prometheus-stack
+# 87.15.2's operator (appVersion v0.92.1).
 # Force ArgoCD to use Replace (not SSA) for these CRDs — the schemas are too
 # large for SSA's OpenAPI download to complete within the request timeout.
 commonAnnotations:

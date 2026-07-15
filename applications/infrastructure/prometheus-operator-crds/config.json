@@ -1,6 +1,6 @@
 {
     "appName": "prometheus-operator-crds",
-    "syncWave": "-6",
+    "syncWave": "-11",
     "namespace": "monitoring",
     "localPath": "applications/infrastructure/prometheus-operator-crds"
 }

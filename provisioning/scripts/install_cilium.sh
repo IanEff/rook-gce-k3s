@@ -5,16 +5,31 @@
 #
 # Unlike ceph-lab's version, this reuses the SAME values.yaml ArgoCD later
 # reconciles against (applications/infrastructure/cilium/values.yaml) via -f,
-# only overriding the two truly instance-specific values (the control-plane's
-# IP, unknown until `tofu apply`) on top with --set. Everything else,
-# including static-but-easy-to-forget settings like routingMode, belongs IN
-# values.yaml itself — not duplicated here or in
+# only overriding instance-specific/environment-specific values on top with
+# --set. Everything else, including static-but-easy-to-forget settings like
+# routingMode, belongs IN values.yaml itself — not duplicated here or in
 # kustomization.yaml's valuesInline — precisely because this script's `-f`
 # doesn't go through Kustomize at all. Ported from a version that duplicated
 # every setting as a separate --set flag — that duplication is exactly what
 # let this bootstrap-time install drift from the ArgoCD-managed one
 # (ceph-lab's install_cilium.sh still has l2announcements.enabled=true, which
 # doesn't even apply on GCP's routed VPC).
+#
+# The k8sServiceHost/Port overrides are the control-plane's IP, unknown until
+# `tofu apply`. The four serviceMonitor overrides below are a second,
+# different category: values.yaml enables ServiceMonitor CRs for cilium
+# (needed once kube-prometheus-stack's operator is live), but THIS particular
+# helm invocation runs before ArgoCD — and therefore before
+# prometheus-operator-crds — exists at all, so the ServiceMonitor CRD is
+# structurally guaranteed not to be registered yet. Without disabling them
+# here, this install fails outright with "no matches for kind ServiceMonitor
+# in version monitoring.coreos.com/v1", which (running under set -euo
+# pipefail, called from control-plane.sh) aborts the entire startup script
+# before install_argocd.sh ever runs — confirmed live: nodes stuck NotReady
+# with no argocd namespace at all. ArgoCD's later reconciliation of the
+# cilium Application (wave -10, after prometheus-operator-crds' wave -11)
+# uses the unmodified values.yaml and converges these back to true once the
+# CRD actually exists.
 set -euo pipefail
 
 CILIUM_VERSION="${CILIUM_VERSION:-1.19.3}"
@@ -44,6 +59,10 @@ helm upgrade --install cilium "${CHART_DIR}" \
     -f /ceph-lab/applications/infrastructure/cilium/values.yaml \
     --set k8sServiceHost="${CONTROL_PLANE_INTERNAL_IP}" \
     --set k8sServicePort="6443" \
+    --set prometheus.serviceMonitor.trustCRDsExist=false \
+    --set envoy.prometheus.serviceMonitor.enabled=false \
+    --set operator.prometheus.serviceMonitor.enabled=false \
+    --set hubble.metrics.serviceMonitor.enabled=false \
     --wait --timeout 10m
 
 echo "[cilium] Installing Hubble CLI"

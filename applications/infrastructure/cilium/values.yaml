@@ -86,8 +86,15 @@ envoy:
 # prometheus.serviceMonitor.trustCRDsExist is true — it can't check the live
 # cluster for the CRD at `helm template`/kustomize-build time the way a real
 # `helm install` against a live API server could. prometheus-operator-crds
-# (wave -6) always installs the CRD before this app (wave -5) reconciles, so
-# this is safe to assert unconditionally.
+# (wave -11) always installs the CRD before this app's ArgoCD-managed
+# reconciliation (wave -10) runs, so this is safe to assert unconditionally
+# for that reconciliation. It is NOT safe for the separate bootstrap-time raw
+# `helm install` in provisioning/scripts/install_cilium.sh — that install
+# always runs before ArgoCD (and therefore prometheus-operator-crds) even
+# exists, so it structurally can never see this CRD; that script overrides
+# this and the three serviceMonitor.enabled keys below to false for its own
+# one-time install only, letting ArgoCD's later reconciliation converge them
+# to true once the CRD is actually there.
 prometheus:
   serviceMonitor:
     trustCRDsExist: true

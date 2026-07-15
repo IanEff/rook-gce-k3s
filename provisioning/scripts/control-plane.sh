@@ -64,7 +64,7 @@ cluster-domain: "cluster.local"
 # hypothetical one: observed directly as load average 10+ on 2 cores and
 # ~130MB free memory, with the API server itself becoming unresponsive to
 # kubectl. Both cilium-agent and cilium-envoy already default to a wildcard
-# `tolerations: [{operator: Exists}]` in the vendored chart, so they need no
+# tolerations (operator: Exists) in the vendored chart, so they need no
 # changes to keep running here; nothing else needs control-plane residency
 # specifically, so everything else simply schedules onto a worker instead.
 node-taint:
