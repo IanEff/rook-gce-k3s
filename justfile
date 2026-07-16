@@ -7,8 +7,8 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cluster_name := "rook-gce-k3s"
-zone := "us-central1-a"
-region := "us-central1"
+zone := `tofu output -raw zone 2>/dev/null || echo us-central1-a`
+region := `tofu output -raw region 2>/dev/null || echo us-central1`
 project_id := `gcloud config get-value project 2>/dev/null`
 
 default:

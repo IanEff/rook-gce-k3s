@@ -1,3 +1,13 @@
+output "zone" {
+  description = "Zone instances were actually provisioned in — the justfile reads this rather than hardcoding a zone, so SSH/tunnel/kubeconfig recipes stay correct across zone moves (stockouts, region migrations)."
+  value       = var.zone
+}
+
+output "region" {
+  description = "Region instances were actually provisioned in — see zone output for why the justfile derives this instead of hardcoding it."
+  value       = var.region
+}
+
 output "control_plane_external_ip" {
   description = "Public IP of the control-plane node. Used by manage_hosts.py (DNS-equivalent /etc/hosts entries for the Cilium Gateway, still IP-reachable) — no longer used by fetch_kubeconfig.py, since SSH/the k3s API are IAP-tunnel-only now (see network.tf)."
   value       = google_compute_address.control_plane_external.address
