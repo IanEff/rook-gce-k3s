@@ -17,6 +17,7 @@
 #   ceph-rgw-saturation   = service "ceph-rgw"  + name "saturation"
 #   ceph-osd-latency      = service "ceph-osd"  + name "latency"
 #   ceph-health           = service "ceph"      + name "health"
+#   ceph-redundancy       = service "ceph"      + name "redundancy"
 #   argocd-sync           = service "argocd"    + name "sync"
 apiVersion: sloth.slok.dev/v1
 kind: PrometheusServiceLevel
@@ -228,6 +229,55 @@ spec:
             avg_over_time(count(argocd_app_info)[{{.window}}:1m])
       alerting:
         name: ArgoCDSyncSLO
+        labels:
+          severity: critical
+        pageAlert:
+          labels:
+            severity: critical
+        ticketAlert:
+          labels:
+            severity: warning
+---
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: ceph-redundancy
+  namespace: monitoring
+spec:
+  service: ceph
+  labels:
+    lab: ceph-lab
+  slos:
+    - name: redundancy
+      objective: 99.9
+      description: >-
+        99.9% of the time every placement group is at full replication — no
+        PG degraded or undersized. A degraded/undersized PG means stored data
+        is below its configured replica count and at elevated loss risk until
+        recovery restores it: a durability failure distinct from capacity
+        (ceph-health/fullness) and from RGW request health. The SLI is a real
+        0-1 fraction — "what fraction of the window had any degraded or
+        undersized PG" — not a raw count fed into burn math, so it can't
+        over-burn the way an unbounded count would (same shape as ceph-health's
+        clamp_max fraction, not ceph-rgw-saturation's original ratio bug).
+        METRIC NAMES VERIFIED LIVE 2026-07-16 against ceph-gce's real scrape
+        (`curl -sG .../api/v1/query --data-urlencode query=ceph_pg_degraded`):
+        ceph_pg_degraded and ceph_pg_undersized are both exported by the
+        rook-ceph-mgr job, labeled per pool_id, and both read 0 on the healthy
+        cluster; sum() aggregates across pools. `or vector(0)` guards the
+        window where the mgr briefly exports no PG series at all (e.g. an mgr
+        restart), same defensiveness as the argocd-sync SLO above.
+      sli:
+        raw:
+          errorRatioQuery: >-
+            avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[{{.window}}:1m]
+            )
+      alerting:
+        name: CephRedundancySLO
         labels:
           severity: critical
         pageAlert:

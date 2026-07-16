@@ -766,6 +766,178 @@ spec:
             sloth_spec: sloth.slok.dev/v1
             sloth_version: 0.16.0
           record: sloth_slo_info
+    - name: sloth-slo-sli-recordings-ceph-redundancy
+      rules:
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[5m:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 5m
+          record: slo:sli_error:ratio_rate5m
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[30m:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 30m
+          record: slo:sli_error:ratio_rate30m
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[1h:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 1h
+          record: slo:sli_error:ratio_rate1h
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[2h:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 2h
+          record: slo:sli_error:ratio_rate2h
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[6h:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 6h
+          record: slo:sli_error:ratio_rate6h
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[1d:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 1d
+          record: slo:sli_error:ratio_rate1d
+        - expr: |-
+            (avg_over_time(
+              clamp_max(
+                (sum(ceph_pg_degraded) or vector(0)) + (sum(ceph_pg_undersized) or vector(0)),
+                1
+              )[3d:1m]
+            ))
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 3d
+          record: slo:sli_error:ratio_rate3d
+        - expr: |
+            sum_over_time(slo:sli_error:ratio_rate5m{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}[30d])
+            / ignoring (sloth_window)
+            count_over_time(slo:sli_error:ratio_rate5m{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}[30d])
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_window: 30d
+          record: slo:sli_error:ratio_rate30d
+    - name: sloth-slo-meta-recordings-ceph-redundancy
+      rules:
+        - expr: vector(0.9990000000000001)
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+          record: slo:objective:ratio
+        - expr: vector(1-0.9990000000000001)
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+          record: slo:error_budget:ratio
+        - expr: vector(30)
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+          record: slo:time_period:days
+        - expr: |
+            slo:sli_error:ratio_rate5m{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}
+            / on(sloth_id, sloth_slo, sloth_service) group_left
+            slo:error_budget:ratio{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+          record: slo:current_burn_rate:ratio
+        - expr: |
+            slo:sli_error:ratio_rate30d{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}
+            / on(sloth_id, sloth_slo, sloth_service) group_left
+            slo:error_budget:ratio{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+          record: slo:period_burn_rate:ratio
+        - expr: 1 - slo:period_burn_rate:ratio{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"}
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_service: ceph
+            sloth_slo: redundancy
+          record: slo:period_error_budget_remaining:ratio
+        - expr: vector(1)
+          labels:
+            lab: ceph-lab
+            sloth_id: ceph-redundancy
+            sloth_mode: cli-gen-k8s
+            sloth_objective: "99.9"
+            sloth_service: ceph
+            sloth_slo: redundancy
+            sloth_spec: sloth.slok.dev/v1
+            sloth_version: 0.16.0
+          record: sloth_slo_info
     - name: sloth-slo-alerts-ceph-rgw-availability
       rules:
         - alert: CephRGWAvailabilitySLO
@@ -962,6 +1134,46 @@ spec:
                 max(slo:sli_error:ratio_rate6h{sloth_id="argocd-sync", sloth_service="argocd", sloth_slo="sync"} > (1 * 0.01)) without (sloth_window)
                 and
                 max(slo:sli_error:ratio_rate3d{sloth_id="argocd-sync", sloth_service="argocd", sloth_slo="sync"} > (1 * 0.01)) without (sloth_window)
+            )
+          labels:
+            severity: warning
+            sloth_severity: ticket
+    - name: sloth-slo-alerts-ceph-redundancy
+      rules:
+        - alert: CephRedundancySLO
+          annotations:
+            summary: '{{$labels.sloth_service}} {{$labels.sloth_slo}} SLO error budget burn rate is over expected.'
+            title: (page) {{$labels.sloth_service}} {{$labels.sloth_slo}} SLO error budget burn rate is too fast.
+          expr: |
+            (
+                max(slo:sli_error:ratio_rate5m{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (14.4 * 0.0009999999999999432)) without (sloth_window)
+                and
+                max(slo:sli_error:ratio_rate1h{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (14.4 * 0.0009999999999999432)) without (sloth_window)
+            )
+            or
+            (
+                max(slo:sli_error:ratio_rate30m{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (6 * 0.0009999999999999432)) without (sloth_window)
+                and
+                max(slo:sli_error:ratio_rate6h{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (6 * 0.0009999999999999432)) without (sloth_window)
+            )
+          labels:
+            severity: critical
+            sloth_severity: page
+        - alert: CephRedundancySLO
+          annotations:
+            summary: '{{$labels.sloth_service}} {{$labels.sloth_slo}} SLO error budget burn rate is over expected.'
+            title: (ticket) {{$labels.sloth_service}} {{$labels.sloth_slo}} SLO error budget burn rate is too fast.
+          expr: |
+            (
+                max(slo:sli_error:ratio_rate2h{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (3 * 0.0009999999999999432)) without (sloth_window)
+                and
+                max(slo:sli_error:ratio_rate1d{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (3 * 0.0009999999999999432)) without (sloth_window)
+            )
+            or
+            (
+                max(slo:sli_error:ratio_rate6h{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (1 * 0.0009999999999999432)) without (sloth_window)
+                and
+                max(slo:sli_error:ratio_rate3d{sloth_id="ceph-redundancy", sloth_service="ceph", sloth_slo="redundancy"} > (1 * 0.0009999999999999432)) without (sloth_window)
             )
           labels:
             severity: warning
