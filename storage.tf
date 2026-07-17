@@ -24,9 +24,19 @@ resource "random_id" "thump_wal_suffix" {
   byte_length = 4
 }
 
+locals {
+  # Derived from var.zone rather than the separately-settable var.region --
+  # they're two independent variables that must otherwise be kept in sync by
+  # hand (same drift class as the 2026-07-17 zone/region-default mismatch
+  # that broke fetch_kubeconfig.py/ripcord.sh's defaults). GCP zone names are
+  # always <region>-<single-letter>, so this can't fall out of sync with
+  # wherever the cluster's instances actually live.
+  bucket_region = substr(var.zone, 0, length(var.zone) - 2)
+}
+
 resource "google_storage_bucket" "thump_wal" {
   name     = "${var.cluster_name}-thump-wal-${random_id.thump_wal_suffix.hex}"
-  location = upper(var.region)
+  location = upper(local.bucket_region)
 
   storage_class               = "STANDARD"
   uniform_bucket_level_access = true

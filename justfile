@@ -7,8 +7,19 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 cluster_name := "rook-gce-k3s"
-zone := `tofu output -raw zone 2>/dev/null || echo us-central1-a`
-region := `tofu output -raw region 2>/dev/null || echo us-central1`
+# `-raw` is unsafe here: on a fresh/empty state (e.g. the first `just up`,
+# before `apply` has ever run — these backticks are evaluated once up front
+# for the whole invocation, not lazily when a recipe body uses them) it
+# prints its "No outputs found" warning to *stdout* with exit 0, so
+# `2>/dev/null || echo <default>` never catches it and the ANSI-colored
+# warning text itself becomes the variable's value — which then corrupts
+# every recipe command line that interpolates {{zone}}/{{region}}. `-json
+# <name>` on a missing/nonexistent output reliably exits non-zero with the
+# error on stderr instead, so the `|| echo <default>` fallback actually
+# fires; strip the surrounding JSON quotes by hand to avoid a jq dependency
+# on the operator's machine (it's only guaranteed installed on the GCE nodes).
+zone := `v=$(tofu output -json zone 2>/dev/null) && v="${v#\"}" && echo "${v%\"}" || echo us-central1-a`
+region := `v=$(tofu output -json region 2>/dev/null) && v="${v#\"}" && echo "${v%\"}" || echo us-central1`
 project_id := `gcloud config get-value project 2>/dev/null`
 
 default:

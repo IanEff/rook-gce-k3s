@@ -61,7 +61,13 @@ def backup_file(path: Path) -> None:
 
 def add() -> None:
     project_id = os.environ.get("PROJECT_ID") or tofu_output_or_default()
-    zone = os.environ.get("ZONE", "us-central1-a")
+    # No hardcoded fallback here on purpose: a stale default silently targets
+    # the wrong zone once terraform.tfvars moves (as happened 2026-07-17 --
+    # the rig moved to us-east1-b but a hand-typed `ZONE=us-central1-a` from
+    # an old session/note kept "working" by retrying for 600s against a
+    # nonexistent instance before finally failing). Tofu's own output is the
+    # only source of truth that can't drift out from under a manual invocation.
+    zone = os.environ.get("ZONE") or tofu_output("zone")
     cluster_name = os.environ.get("CLUSTER_NAME", "rook-gce-k3s")
     internal_ip = tofu_output("control_plane_internal_ip")
 

@@ -14,7 +14,7 @@
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
-ZONE="${ZONE:?Set ZONE, e.g. ZONE=us-central1-a}"
+ZONE="${ZONE:?Set ZONE, e.g. ZONE=\$(tofu output -raw zone) -- don't hand-type a remembered value, it drifts (see terraform.tfvars)}"
 CLUSTER_NAME="${CLUSTER_NAME:-rook-gce-k3s}"
 NAMESPACE="rook-ceph"
 

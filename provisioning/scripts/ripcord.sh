@@ -18,9 +18,32 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
 PROJECT_ID=${PROJECT_ID:-"terraform-sandbox-430820"}
-ZONE=${ZONE:-"us-central1-a"}
-REGION=${REGION:-"us-central1"}
 CLUSTER_NAME=${CLUSTER_NAME:-"rook-gce-k3s"}
+
+# Auto-discover zone/region from live resources instead of trusting a
+# hardcoded/stale default or a hand-typed env var -- this script exists for
+# when Tofu state can't be trusted, so the resources themselves are the only
+# source of truth that can't drift out from under it (unlike a zone baked
+# into a script or remembered from a previous session -- see 2026-07-17
+# incident where terraform.tfvars had moved the whole rig to us-east1-b but
+# every "just paste ZONE=..." example still said us-central1-a, and a stale
+# manual invocation silently searched the wrong zone). ZONE/REGION env vars,
+# if explicitly set, still override -- needed once every instance is already
+# gone and there's nothing left to discover from.
+if [ -z "${ZONE:-}" ]; then
+  ZONE=$(gcloud compute instances list --project="${PROJECT_ID}" \
+    --filter="name~'^${CLUSTER_NAME}-'" --format="value(zone)" 2>/dev/null | head -1)
+  if [ -z "${ZONE}" ]; then
+    echo "No live ${CLUSTER_NAME}-* instances found to auto-detect ZONE from." >&2
+    echo "Set ZONE explicitly (e.g. ZONE=us-east1-b) if resources remain in another zone." >&2
+    exit 1
+  fi
+fi
+if [ -z "${REGION:-}" ]; then
+  REGION=$(gcloud compute addresses list --project="${PROJECT_ID}" \
+    --filter="name~'^${CLUSTER_NAME}-control-plane-'" --format="value(region)" 2>/dev/null | head -1)
+  REGION=${REGION:-"${ZONE%-*}"}
+fi
 
 echo "Project:  ${PROJECT_ID}"
 echo "Zone:     ${ZONE}"
