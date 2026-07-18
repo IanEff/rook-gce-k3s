@@ -50,6 +50,7 @@ up: apply credentials thump-env
     @echo "then sanity check: kubectl --context ceph-gce get nodes"
     @echo
     @echo "Watch ArgoCD sync: kubectl --context ceph-gce get applications -n argocd -w"
+    @echo "Or time the full boot: just boot-timeline (in its own terminal)"
 
 # Push storage.tf's S3 outputs (bucket/endpoint/HMAC key) into thump's .env
 # — its Tiltfile's thump-s3-secret local_resource reads from there. Re-run
@@ -101,6 +102,15 @@ ssh target="control-plane":
 tunnel:
     gcloud compute start-iap-tunnel {{cluster_name}}-control-plane 6443 \
         --local-host-port=localhost:6443 --zone={{zone}} --project={{project_id}}
+
+# Times how long each ArgoCD Application takes to reach Healthy on a cold
+# boot, and writes a CSV timeline to boot-timelines/. Run in its own terminal
+# alongside `just tunnel`, ideally started right when `just up` is kicked off
+# so the timeline covers VM-boot -> API-reachable -> every-app-Healthy, not
+# just the ArgoCD-visible portion. `cilium` is excluded from the completion
+# condition on purpose -- see the script's own docstring / CLAUDE.md gotcha #15.
+boot-timeline:
+    python3 provisioning/scripts/boot_timeline.py
 
 # Regenerate Prometheus rule groups from the Sloth SLO specs (requires sloth-cli, yq).
 # Splices directly into applications/infrastructure/prometheus/values.yaml —
