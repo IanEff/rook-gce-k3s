@@ -71,8 +71,15 @@ destroy: init
 # then write the fixed *.ceph-gce.lab hostnames into /etc/hosts.
 credentials: kubeconfig hosts
 
+# No ZONE here on purpose: {{zone}} is evaluated once, up front, for the
+# whole `just` invocation (see the comment on the `zone :=` assignment
+# above) -- on a fresh `up`, that happens before `apply` has run, so it can
+# only ever resolve to the hardcoded fallback and never the zone `apply`
+# just created the cluster in. fetch_kubeconfig.py already does its own
+# live `tofu output -raw zone` lookup when ZONE isn't set (see its own
+# comment) -- let it, instead of overriding it with a stale value here.
 kubeconfig:
-    PROJECT_ID={{project_id}} ZONE={{zone}} CLUSTER_NAME={{cluster_name}} \
+    PROJECT_ID={{project_id}} CLUSTER_NAME={{cluster_name}} \
         python3 provisioning/scripts/fetch_kubeconfig.py add
 
 hosts:
@@ -151,7 +158,13 @@ wipe-ceph-disks:
         provisioning/scripts/wipe_ceph_disks.sh
 
 # Emergency teardown via gcloud CLI directly, bypassing OpenTofu — for when
-# `just destroy` can't run (broken .terraform/, unresponsive API, etc).
+# `just destroy` can't run (broken .terraform/, unresponsive API, etc). No
+# ZONE/REGION here on purpose: this script exists for when Tofu state can't
+# be trusted, so it auto-discovers zone/region from live gcloud resources
+# itself (see its own comment) -- passing {{zone}}/{{region}} (Tofu-derived,
+# and evaluated once up front per the `zone :=` comment above) would defeat
+# that and reintroduce the same stale-zone failure mode this script was
+# written to survive.
 pull-ripcord:
-    PROJECT_ID={{project_id}} ZONE={{zone}} REGION={{region}} CLUSTER_NAME={{cluster_name}} \
+    PROJECT_ID={{project_id}} CLUSTER_NAME={{cluster_name}} \
         provisioning/scripts/ripcord.sh
