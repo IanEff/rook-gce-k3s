@@ -33,6 +33,25 @@ echo "  rook-gce-k3s — ArgoCD bootstrap           "
 echo "  Repo: ${GITOPS_REPO_URL}                 "
 echo "══════════════════════════════════════════"
 
+echo "[0a] Install argocd CLI in the background (was step [6], fully serial)"
+# Nothing later in this script, and nothing in ArgoCD's own reconciliation,
+# depends on /usr/local/bin/argocd existing -- only kubectl access matters
+# for GitOps to proceed. Kicking this off first, backgrounded, gives it this
+# script's entire remaining runtime to finish over the network instead of
+# adding its own serial time at the very end. Output goes to a log instead
+# of stdout since it now runs concurrently with the rest of this script.
+(
+    set -euo pipefail
+    ARCH=$(dpkg --print-architecture)
+    ARGOCD_CLI_VERSION=$(curl -sL \
+        https://api.github.com/repos/argoproj/argo-cd/releases/latest \
+        | grep '"tag_name"' | cut -d'"' -f4)
+    curl -fsSL -o /usr/local/bin/argocd \
+        "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_CLI_VERSION}/argocd-linux-${ARCH}"
+    chmod +x /usr/local/bin/argocd
+    echo "argocd CLI ${ARGOCD_CLI_VERSION} installed."
+) > /var/log/argocd-cli-install.log 2>&1 &
+
 echo "[0] Substitute GITOPS_REPO_URL placeholder across all manifests"
 # Must run BEFORE [1]'s pre-bootstrap Cilium apply, not after — that apply
 # does `kubectl kustomize | kubectl apply` straight from this same clone, so
@@ -135,17 +154,9 @@ fi
 echo "[5] Apply root Application (seeds entire GitOps tree)"
 kubectl apply -f /ceph-lab/cluster-bootstrap/bootstrap/root-app.yaml
 
-echo "[6] Install argocd CLI"
-ARGOCD_CLI_VERSION=$(curl -sL \
-    https://api.github.com/repos/argoproj/argo-cd/releases/latest \
-    | grep '"tag_name"' | cut -d'"' -f4)
-ARCH=$(dpkg --print-architecture)
-curl -fsSL -o /usr/local/bin/argocd \
-    "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_CLI_VERSION}/argocd-linux-${ARCH}"
-chmod +x /usr/local/bin/argocd
-
 echo ""
-echo "✓ ArgoCD is bootstrapped!"
+echo "✓ ArgoCD is bootstrapped! (argocd CLI install from step [0a] may still be"
+echo "  finishing in the background -- check /var/log/argocd-cli-install.log)"
 echo ""
 echo "  UI:       https://argocd.ceph-gce.lab  (after manage_hosts.py has run on the Mac)"
 echo "  Login:    admin / password  (CHANGE IN PRODUCTION)"
